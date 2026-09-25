@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Form Input Akhir Shift Pabrik</title>
+  <!-- Tailwind CSS untuk Desain Responsive HP/Tablet -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Supabase JS Client library -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body class="bg-slate-100 min-h-screen p-4 md:p-8">
+
+  <div class="max-w-xl mx-auto bg-white rounded-2xl shadow-md p-6 border border-slate-200">
+    <div class="border-b pb-4 mb-6">
+      <h1 class="text-2xl font-bold text-slate-800">Laporan Akhir Shift</h1>
+      <p class="text-sm text-slate-500">Input Data 60 Mesin & 15 Line Assembly</p>
+    </div>
+
+    <form id="shiftForm" class="space-y-4">
+      
+      <!-- Tanggal & Shift -->
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <label class="block text-sm font-semibold text-slate-700 mb-1">Tanggal</label>
+          <input type="date" id="tanggal" required class="w-full p-3 border rounded-lg bg-slate-50 text-slate-800 border-slate-300 focus:ring-2 focus:ring-blue-500 outline-none">
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-slate-700 mb-1">Shift</label>
+          <select id="shift" required class="w-full p-3 border rounded-lg bg-slate-50 text-slate-800 border-slate-300 focus:ring-2 focus:ring-blue-500 outline-none">
+            <option value="1">Shift 1</option>
+            <option value="2">Shift 2</option>
+            <option value="3">Shift 3</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Kategori & Nama Unit -->
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <label class="block text-sm font-semibold text-slate-700 mb-1">Kategori</label>
+          <select id="kategori" onchange="updateUnitOptions()" class="w-full p-3 border rounded-lg bg-slate-50 text-slate-800 border-slate-300 focus:ring-2 focus:ring-blue-500 outline-none">
+            <option value="Mesin">Mesin (60)</option>
+            <option value="Line Assembly">Line Assembly (15)</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-slate-700 mb-1">Pilih Unit</label>
+          <select id="nama_unit" required class="w-full p-3 border rounded-lg bg-slate-50 text-slate-800 border-slate-300 focus:ring-2 focus:ring-blue-500 outline-none">
+            <!-- Pilihan diisi otomatis via JS -->
+          </select>
+        </div>
+      </div>
+
+      <!-- Nama Operator -->
+      <div>
+        <label class="block text-sm font-semibold text-slate-700 mb-1">Nama Operator / Leader</label>
+        <input type="text" id="operator" placeholder="Masukkan nama..." required class="w-full p-3 border rounded-lg bg-slate-50 text-slate-800 border-slate-300 focus:ring-2 focus:ring-blue-500 outline-none">
+      </div>
+
+      <!-- Target vs Actual Output -->
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <label class="block text-sm font-semibold text-slate-700 mb-1">Target Output</label>
+          <input type="number" id="target_output" placeholder="0" class="w-full p-3 border rounded-lg bg-slate-50 text-slate-800 border-slate-300 focus:ring-2 focus:ring-blue-500 outline-none">
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-slate-700 mb-1">Actual Output</label>
+          <input type="number" id="actual_output" placeholder="0" required class="w-full p-3 border rounded-lg bg-slate-50 text-slate-800 border-slate-300 focus:ring-2 focus:ring-blue-500 outline-none">
+        </div>
+      </div>
+
+      <!-- Downtime -->
+      <div>
+        <label class="block text-sm font-semibold text-slate-700 mb-1">Downtime (Menit)</label>
+        <input type="number" id="downtime_menit" placeholder="0 jika tidak ada" class="w-full p-3 border rounded-lg bg-slate-50 text-slate-800 border-slate-300 focus:ring-2 focus:ring-blue-500 outline-none">
+      </div>
+
+      <!-- Catatan / Error -->
+      <div>
+        <label class="block text-sm font-semibold text-slate-700 mb-1">Catatan / Kendala</label>
+        <textarea id="catatan" rows="3" placeholder="Contoh: Perbaikan moulding 15 menit..." class="w-full p-3 border rounded-lg bg-slate-50 text-slate-800 border-slate-300 focus:ring-2 focus:ring-blue-500 outline-none"></textarea>
+      </div>
+
+      <!-- Tombol Submit Besar (Mudah di-Tap di HP) -->
+      <button type="submit" id="btnSubmit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl shadow-lg transition duration-200 text-lg">
+        KIRIM LAPORAN SHIFT
+      </button>
+
+      <p id="statusMessage" class="text-center font-semibold text-sm mt-2 hidden"></p>
+    </form>
+  </div>
+
+  <script>
+    // ==========================================
+    // 1. KREDENSIAL SUPABASE
+    // ==========================================
+    const SUPABASE_URL = "https://wuffqarrwetjwylyebhv.supabase.co";
+    const SUPABASE_ANON_KEY = "sb_publishable_mQgIRX9zv1BCZ1VRuwtOzw_tNVE_I71";
+    
+    const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // Set tanggal default ke hari ini
+    document.getElementById('tanggal').valueAsDate = new Date();
+
+    // Generasi Otomatis Pilihan 60 Mesin & 15 Line Assembly
+    function updateUnitOptions() {
+      const kategori = document.getElementById('kategori').value;
+      const unitSelect = document.getElementById('nama_unit');
+      unitSelect.innerHTML = '';
+
+      if (kategori === 'Mesin') {
+        for (let i = 1; i <= 60; i++) {
+          const num = String(i).padStart(2, '0');
+          unitSelect.innerHTML += `<option value="Mesin ${num}">Mesin ${num}</option>`;
+        }
+      } else {
+        for (let i = 1; i <= 15; i++) {
+          const num = String(i).padStart(2, '0');
+          unitSelect.innerHTML += `<option value="Line ${num}">Line Assembly ${num}</option>`;
+        }
+      }
+    }
+    updateUnitOptions(); // Inisialisasi awal
+
+    // Handle Pengiriman Form
+    document.getElementById('shiftForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const btn = document.getElementById('btnSubmit');
+      const statusMsg = document.getElementById('statusMessage');
+
+      btn.disabled = true;
+      btn.innerText = "Mengirim...";
+      statusMsg.classList.add('hidden');
+
+      // Ambil data form
+      const payload = {
+        tanggal: document.getElementById('tanggal').value,
+        shift: parseInt(document.getElementById('shift').value),
+        kategori: document.getElementById('kategori').value,
+        nama_unit: document.getElementById('nama_unit').value,
+        operator: document.getElementById('operator').value,
+        target_output: parseInt(document.getElementById('target_output').value) || 0,
+        actual_output: parseInt(document.getElementById('actual_output').value) || 0,
+        downtime_menit: parseInt(document.getElementById('downtime_menit').value) || 0,
+        catatan: document.getElementById('catatan').value
+      };
+
+      // Simpan ke Supabase
+      const { data, error } = await supabase.from('log_shift').insert([payload]);
+
+      btn.disabled = false;
+      btn.innerText = "KIRIM LAPORAN SHIFT";
+
+      if (error) {
+        statusMsg.innerText = "❌ Gagal kirim: " + error.message;
+        statusMsg.className = "text-center font-semibold text-sm mt-2 text-red-600";
+      } else {
+        statusMsg.innerText = "✅ Laporan Berhasil Terkirim!";
+        statusMsg.className = "text-center font-semibold text-sm mt-2 text-green-600";
+        
+        // Reset form
+        document.getElementById('operator').value = '';
+        document.getElementById('actual_output').value = '';
+        document.getElementById('downtime_menit').value = '';
+        document.getElementById('catatan').value = '';
+      }
+    });
+  </script>
+</body>
+</html>
