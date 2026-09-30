@@ -3,168 +3,2390 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Form Input Akhir Shift Pabrik</title>
-  <!-- Tailwind CSS untuk Desain Responsive HP/Tablet -->
+  <title>Enterprise MES - System Laporan Shift & Master Management</title>
+  <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
-  <!-- Supabase JS Client library -->
+  <!-- Supabase JS CDN -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <!-- PapaParse CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <!-- Chart.js CDN (Visualisasi OEE & Performance) -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- SheetJS CDN (Ekspor Excel) -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <!-- jsPDF & autoTable CDN (Ekspor PDF) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
 </head>
-<body class="bg-slate-100 min-h-screen p-4 md:p-8">
+<body class="bg-slate-100 min-h-screen text-slate-800 pb-24">
 
-  <div class="max-w-xl mx-auto bg-white rounded-2xl shadow-md p-6 border border-slate-200">
-    <div class="border-b pb-4 mb-6">
-      <h1 class="text-2xl font-bold text-slate-800">Laporan Akhir Shift</h1>
-      <p class="text-sm text-slate-500">Input Data 60 Mesin & 15 Line Assembly</p>
+  <!-- ============================================== -->
+  <!-- GERBANG LOGIN (WAJIB) -->
+  <!-- Menutupi seluruh aplikasi sampai user login lewat Supabase Auth. -->
+  <!-- CATATAN SETUP: aktifkan Email/Password Auth di project Supabase, -->
+  <!-- dan buat tabel "profiles" (id uuid = auth.users.id, email, role) -->
+  <!-- untuk menentukan role tiap user (admin/supervisor/operator). -->
+  <!-- ============================================== -->
+  <div id="loginScreen" class="fixed inset-0 bg-slate-900 z-[100] flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-4">
+      <div class="text-center">
+        <h1 class="text-lg font-bold text-slate-800">Enterprise MES</h1>
+        <p class="text-xs text-slate-500">Silakan login untuk melanjutkan</p>
+      </div>
+      <div class="space-y-2">
+        <input type="email" id="loginEmail" placeholder="Email" class="w-full p-2.5 border rounded-lg bg-slate-50 text-sm">
+        <input type="password" id="loginPassword" placeholder="Password" class="w-full p-2.5 border rounded-lg bg-slate-50 text-sm">
+      </div>
+      <button onclick="handleLogin()" id="btnLogin" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 rounded-lg text-sm">
+        Masuk
+      </button>
+      <p id="loginError" class="hidden text-xs text-red-600 font-bold text-center"></p>
+      <p class="text-[10px] text-slate-400 text-center">Akun dibuat oleh admin. Hubungi admin sistem jika belum punya akses.</p>
+    </div>
+  </div>
+
+  <!-- Konten aplikasi disembunyikan sampai login berhasil -->
+  <div id="appRoot" class="hidden">
+
+  <!-- Header & Navigasi Utama -->
+  <div class="bg-blue-700 text-white p-4 shadow-md sticky top-0 z-50">
+    <div class="flex justify-between items-center mb-3">
+      <div>
+        <h1 class="text-lg font-bold leading-tight">Enterprise MES - System Laporan Shift</h1>
+        <p class="text-xs text-blue-200" id="networkStatus">🟢 Online (Live Sync Active)</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <span id="currentUserBadge" class="text-[11px] font-bold bg-blue-800 px-2.5 py-1 rounded-full border border-blue-500"></span>
+        <button onclick="handleLogout()" class="bg-blue-800 hover:bg-red-600 text-xs font-bold px-2.5 py-1 rounded-lg text-white shadow">
+          Keluar
+        </button>
+        <button id="btnForceSync" onclick="SyncManager.processQueue()" class="hidden bg-amber-500 hover:bg-amber-600 text-xs font-bold px-2.5 py-1 rounded-lg text-white shadow">
+          ⚡ Sync Sekarang
+        </button>
+        <div class="text-xs font-bold bg-blue-800 px-3 py-1 rounded-full border border-blue-500" id="pendingSyncBadge">
+          0 Pending Offline
+        </div>
+      </div>
+    </div>
+    
+    <!-- Navigation Tabs -->
+    <div class="flex space-x-2 overflow-x-auto text-sm">
+      <button type="button" onclick="switchTab('tab-input')" id="btn-tab-input" class="px-4 py-2 bg-white text-blue-700 font-bold rounded-lg whitespace-nowrap shadow cursor-pointer">
+        📝 Form Input Shift
+      </button>
+      <button type="button" onclick="switchTab('tab-dashboard')" id="btn-tab-dashboard" class="px-4 py-2 bg-blue-800 text-white hover:bg-blue-600 rounded-lg whitespace-nowrap cursor-pointer">
+        📊 Dashboard & OEE Analytics
+      </button>
+      <button type="button" onclick="switchTab('tab-approval')" id="btn-tab-approval" class="px-4 py-2 bg-blue-800 text-white hover:bg-blue-600 rounded-lg whitespace-nowrap cursor-pointer">
+        ✅ Tabel Approval & Filter
+      </button>
+      <button type="button" onclick="switchTab('tab-plan')" id="btn-tab-plan" class="px-4 py-2 bg-blue-800 text-white hover:bg-blue-600 rounded-lg whitespace-nowrap cursor-pointer">
+        📅 Jadwal Produksi
+      </button>
+      <button type="button" onclick="switchTab('tab-qms')" id="btn-tab-qms" class="px-4 py-2 bg-blue-800 text-white hover:bg-blue-600 rounded-lg whitespace-nowrap cursor-pointer">
+        🔬 QMS Kualitas
+      </button>
+      <button type="button" onclick="switchTab('tab-master')" id="btn-tab-master" class="px-4 py-2 bg-blue-800 text-white hover:bg-blue-600 rounded-lg whitespace-nowrap cursor-pointer">
+        ⚙️ Master Data Hub (CRUD)
+      </button>
+    </div>
+  </div>
+
+  <!-- ============================================== -->
+  <!-- TAB 1: FORM INPUT SHIFT -->
+  <!-- ============================================== -->
+  <div id="tab-input" class="p-4 max-w-3xl mx-auto space-y-4 block">
+    
+    <!-- IoT Ready Switch Simulation -->
+    <div class="bg-indigo-50 border border-indigo-200 p-3 rounded-xl flex justify-between items-center shadow-sm">
+      <div class="flex items-center gap-2">
+        <span class="text-lg">📡</span>
+        <div>
+          <h4 class="text-xs font-bold text-indigo-900">IoT Real-Time Telemetry Mode</h4>
+          <p class="text-[11px] text-indigo-600">Integrasikan data sensor mesin otomatis ke dalam form garapan</p>
+        </div>
+      </div>
+      <label class="relative inline-flex items-center cursor-pointer">
+        <input type="checkbox" id="iotToggle" onchange="toggleIoTMode()" class="sr-only peer">
+        <div class="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+      </label>
     </div>
 
-    <form id="shiftForm" class="space-y-4">
+    <!-- Shift Duration Validation Warning Banner -->
+    <div id="validationWarning" class="hidden p-3.5 bg-red-100 border-l-4 border-red-500 text-red-800 rounded-r-xl text-xs font-bold space-y-1 shadow-sm">
+      <div class="flex items-center gap-2">
+        <span class="text-base">⚠️</span>
+        <span id="validationWarningText">Total durasi garapan belum sesuai dengan jam standar shift!</span>
+      </div>
+    </div>
+
+    <div id="editBanner" class="hidden p-3 bg-blue-50 border border-blue-300 rounded-xl text-xs font-bold text-blue-800"></div>
+    <form id="shiftForm" class="space-y-4" onsubmit="event.preventDefault();">
       
-      <!-- Tanggal & Shift -->
-      <div class="grid grid-cols-2 gap-4">
+      <!-- 1. HEADER INPUT -->
+      <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
+        <h2 class="font-bold text-slate-700 border-b pb-2 text-sm">1. Informasi Area & Shift</h2>
+        
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+          <div>
+            <label class="block text-xs font-bold text-slate-500 mb-1">Tanggal</label>
+            <input type="date" id="tanggal" required class="w-full p-2.5 border rounded-lg bg-slate-50 text-sm font-semibold">
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-slate-500 mb-1">Shift</label>
+            <select id="shift" required onchange="applyShiftTimes()" class="w-full p-2.5 border rounded-lg bg-slate-50 text-sm font-semibold">
+              <option value="1">Shift 1 (07:00 - 15:00)</option>
+              <option value="2">Shift 2 (15:00 - 23:00)</option>
+              <option value="3">Shift 3 (23:00 - 07:00)</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-slate-500 mb-1">Nama Koordinator Shift</label>
+            <input type="text" id="koordinator" required placeholder="Masukkan nama koordinator..." class="w-full p-2.5 border rounded-lg bg-slate-50 text-sm">
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-slate-500 mb-1">Department</label>
+            <select id="department" onchange="updateMesinOptions(); checkAssemblyMode(); updateOperatorDropdown();" class="w-full p-2.5 border rounded-lg bg-blue-50 border-blue-300 font-bold text-blue-700 text-sm">
+              <option value="Blowing">Blowing (30 Mesin)</option>
+              <option value="Vinyl">Vinyl (10 Mesin)</option>
+              <option value="Sablon">Sablon (25 Mesin)</option>
+              <option value="Painting">Painting (16 Mesin)</option>
+              <option value="Assembly">Assembly (20 Line)</option>
+            </select>
+          </div>
+          <div class="col-span-2 md:col-span-2">
+            <label class="block text-xs font-bold text-slate-500 mb-1">Nomor Mesin / Line</label>
+            <select id="mesin" required class="w-full p-2.5 border rounded-lg bg-slate-50 text-sm font-semibold"></select>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. OPERATOR SELECTION -->
+      <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
+        <div class="flex justify-between items-center border-b pb-2">
+          <h2 class="font-bold text-slate-700 text-sm">2. Data Operator / Tim Kerja</h2>
+          <div id="assemblyModeWrapper" class="hidden">
+            <select id="assembly_mode" onchange="toggleOperatorMode()" class="text-xs bg-yellow-100 border border-yellow-400 p-1.5 rounded font-bold text-yellow-800">
+              <option value="Individu">Mode: Individu (Multi-Operator Line)</option>
+              <option value="Tim">Mode: Tim / Kelompok</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="operatorContainer" class="space-y-2">
+          <div class="flex gap-2 op-row">
+            <input type="text" id="firstOpInput" class="op-nama w-full p-2.5 border rounded-lg bg-slate-50 text-sm" placeholder="Nama Operator Utama" required list="karyawanList">
+            <select class="op-status p-2.5 border rounded-lg bg-slate-50 text-sm font-semibold min-w-[110px]">
+              <option value="Hadir">Hadir</option>
+              <option value="Rolling/Bantuan">Rolling</option>
+              <option value="Izin/Sakit">Izin/Sakit</option>
+            </select>
+          </div>
+        </div>
+        <datalist id="karyawanList"></datalist>
+
+        <button type="button" id="btnAddOperator" onclick="addOperatorInput()" class="hidden w-full py-2.5 border-2 border-dashed border-blue-300 text-blue-600 rounded-lg text-xs font-bold bg-blue-50 hover:bg-blue-100">
+          + Tambah Operator
+        </button>
+      </div>
+
+      <!-- 3. HASIL PRODUKSI MULTI-GARAPAN -->
+      <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
+        <div class="flex justify-between items-center border-b pb-2">
+          <h2 class="font-bold text-slate-700 text-sm">3. Input Produksi (1 sesi per input)</h2>
+          <span id="timeSummaryBadge" class="text-xs font-bold px-2.5 py-1 rounded-full bg-slate-100 text-slate-700 border">
+            Total: 0 Jam / 8 Jam Shift
+          </span>
+        </div>
+
+        <div id="garapanContainer" class="space-y-4"></div>
+        <datalist id="produkList"></datalist>
+
+        <p class="text-[11px] text-slate-500">Pilih sesi (2 jam), isi hasilnya, lalu klik Tambah ke Antrean. Hasil langsung muncul di tabel di bawah form. Review dan kirim ke approval di akhir shift.</p>
+        <button type="button" onclick="fillFromPlan()" class="w-full py-2 border border-indigo-300 text-indigo-700 rounded-lg text-xs font-bold bg-indigo-50 hover:bg-indigo-100">📅 Isi WO/Produk dari Jadwal Produksi</button>
+      </div>
+
+      <!-- REALTIME OEE SUMMARY BAR -->
+      <div class="bg-indigo-900 text-white p-4 rounded-xl shadow-md grid grid-cols-4 gap-2 text-center">
         <div>
-          <label class="block text-sm font-semibold text-slate-700 mb-1">Tanggal</label>
-          <input type="date" id="tanggal" required class="w-full p-3 border rounded-lg bg-slate-50 text-slate-800 border-slate-300 focus:ring-2 focus:ring-blue-500 outline-none">
+          <p class="text-[10px] text-indigo-300 uppercase font-bold">Availability</p>
+          <p id="oeeAvail" class="text-lg font-black">0%</p>
         </div>
         <div>
-          <label class="block text-sm font-semibold text-slate-700 mb-1">Shift</label>
-          <select id="shift" required class="w-full p-3 border rounded-lg bg-slate-50 text-slate-800 border-slate-300 focus:ring-2 focus:ring-blue-500 outline-none">
+          <p class="text-[10px] text-indigo-300 uppercase font-bold">Performance</p>
+          <p id="oeePerf" class="text-lg font-black">0%</p>
+        </div>
+        <div>
+          <p class="text-[10px] text-indigo-300 uppercase font-bold">Quality</p>
+          <p id="oeeQual" class="text-lg font-black">0%</p>
+        </div>
+        <div class="border-l border-indigo-700">
+          <p class="text-[10px] text-amber-400 uppercase font-bold">OEE Score</p>
+          <p id="oeeTotal" class="text-xl font-black text-amber-400">0%</p>
+        </div>
+      </div>
+
+      <!-- STATUS & ACTION BUTTONS -->
+      <div class="grid grid-cols-2 gap-3">
+        <button type="button" onclick="addEntry()" class="col-span-2 w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl shadow text-sm">
+          ➕ Tambah ke Antrean
+        </button>
+        <button type="button" id="btnSubmitForm" onclick="submitForm('Submitted')" class="hidden w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl shadow text-sm disabled:opacity-50 disabled:cursor-not-allowed">
+          🚀 Kirim Langsung (tanpa review antrean)
+        </button>
+      </div>
+      
+      <p id="statusMessage" class="text-center font-bold text-sm hidden p-2 rounded-lg"></p>
+    </form>
+    <div id="myReports" class="hidden mt-4 p-3 bg-white border border-slate-300 rounded-xl overflow-x-auto shadow-sm"></div>
+  </div>
+
+  <!-- ============================================== -->
+  <!-- TAB 2: DASHBOARD & OEE ANALYTICS (DENGAN FILTER INTERAKTIF) -->
+  <!-- ============================================== -->
+  <div id="tab-dashboard" class="p-4 max-w-6xl mx-auto hidden space-y-4">
+    
+    <!-- FILTER INTERAKTIF DASHBOARD -->
+    <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-2">
+      <div class="flex justify-between items-center border-b pb-2">
+        <h3 class="font-bold text-xs text-indigo-800 uppercase tracking-wider flex items-center gap-1">
+          🔍 Filter Analytics Interactive
+        </h3>
+        <button onclick="resetDashFilters()" class="text-[11px] font-bold text-blue-600 hover:underline">
+          Reset Filter
+        </button>
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+        <div>
+          <label class="block text-[11px] font-bold text-slate-600 mb-1">Rentang Tanggal</label>
+          <div class="flex gap-1">
+            <input type="date" id="dashStartDate" onchange="renderDashboardAnalytics()" class="w-full p-2 border rounded-lg text-xs bg-slate-50">
+            <input type="date" id="dashEndDate" onchange="renderDashboardAnalytics()" class="w-full p-2 border rounded-lg text-xs bg-slate-50">
+          </div>
+        </div>
+        <div>
+          <label class="block text-[11px] font-bold text-slate-600 mb-1">Shift</label>
+          <select id="dashFilterShift" onchange="renderDashboardAnalytics()" class="w-full p-2 border rounded-lg text-xs bg-slate-50 font-semibold">
+            <option value="">Semua Shift</option>
             <option value="1">Shift 1</option>
             <option value="2">Shift 2</option>
             <option value="3">Shift 3</option>
           </select>
         </div>
-      </div>
-
-      <!-- Kategori & Nama Unit -->
-      <div class="grid grid-cols-2 gap-4">
         <div>
-          <label class="block text-sm font-semibold text-slate-700 mb-1">Kategori</label>
-          <select id="kategori" onchange="updateUnitOptions()" class="w-full p-3 border rounded-lg bg-slate-50 text-slate-800 border-slate-300 focus:ring-2 focus:ring-blue-500 outline-none">
-            <option value="Mesin">Mesin (60)</option>
-            <option value="Line Assembly">Line Assembly (15)</option>
+          <label class="block text-[11px] font-bold text-slate-600 mb-1">Department</label>
+          <select id="dashFilterDept" onchange="updateDashMesinOptions(); renderDashboardAnalytics();" class="w-full p-2 border rounded-lg text-xs bg-slate-50 font-semibold">
+            <option value="">Semua Department</option>
+            <option value="Blowing">Blowing</option>
+            <option value="Vinyl">Vinyl</option>
+            <option value="Sablon">Sablon</option>
+            <option value="Painting">Painting</option>
+            <option value="Assembly">Assembly</option>
           </select>
         </div>
         <div>
-          <label class="block text-sm font-semibold text-slate-700 mb-1">Pilih Unit</label>
-          <select id="nama_unit" required class="w-full p-3 border rounded-lg bg-slate-50 text-slate-800 border-slate-300 focus:ring-2 focus:ring-blue-500 outline-none">
-            <!-- Pilihan diisi otomatis via JS -->
+          <label class="block text-[11px] font-bold text-slate-600 mb-1">Line / Mesin</label>
+          <select id="dashFilterMesin" onchange="renderDashboardAnalytics()" class="w-full p-2 border rounded-lg text-xs bg-slate-50 font-semibold">
+            <option value="">Semua Mesin/Line</option>
           </select>
         </div>
       </div>
+    </div>
 
-      <!-- Nama Operator -->
-      <div>
-        <label class="block text-sm font-semibold text-slate-700 mb-1">Nama Operator / Leader</label>
-        <input type="text" id="operator" placeholder="Masukkan nama..." required class="w-full p-3 border rounded-lg bg-slate-50 text-slate-800 border-slate-300 focus:ring-2 focus:ring-blue-500 outline-none">
+    <!-- SUMMARY CARDS -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div class="bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
+        <p class="text-xs text-slate-500 font-bold">Rata-Rata OEE Pabrik</p>
+        <p id="dashOeeAvg" class="text-2xl font-black text-blue-700">0%</p>
       </div>
+      <div class="bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
+        <p class="text-xs text-slate-500 font-bold">Total Production OK</p>
+        <p id="dashTotalOk" class="text-2xl font-black text-emerald-600">0 Pcs</p>
+      </div>
+      <div class="bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
+        <p class="text-xs text-slate-500 font-bold">Total Reject (NG)</p>
+        <p id="dashTotalNg" class="text-2xl font-black text-red-600">0 Pcs</p>
+      </div>
+      <div class="bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
+        <p class="text-xs text-slate-500 font-bold">Total Downtime Mesin</p>
+        <p id="dashTotalDt" class="text-2xl font-black text-amber-600">0 Menit</p>
+      </div>
+    </div>
 
-      <!-- Target vs Actual Output -->
-      <div class="grid grid-cols-2 gap-4">
-        <div>
-          <label class="block text-sm font-semibold text-slate-700 mb-1">Target Output</label>
-          <input type="number" id="target_output" placeholder="0" class="w-full p-3 border rounded-lg bg-slate-50 text-slate-800 border-slate-300 focus:ring-2 focus:ring-blue-500 outline-none">
+    <!-- 3 Chart.js Grid -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <!-- Chart 1: Pareto Downtime -->
+      <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+        <h3 class="font-bold text-slate-800 text-xs uppercase mb-2 text-indigo-700">📊 Diagram Pareto Penyebab Downtime</h3>
+        <div class="h-60">
+          <canvas id="chartParetoDowntime"></canvas>
         </div>
-        <div>
-          <label class="block text-sm font-semibold text-slate-700 mb-1">Actual Output</label>
-          <input type="number" id="actual_output" placeholder="0" required class="w-full p-3 border rounded-lg bg-slate-50 text-slate-800 border-slate-300 focus:ring-2 focus:ring-blue-500 outline-none">
+      </div>
+      <!-- Chart 2: OEE Component Breakdown -->
+      <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+        <h3 class="font-bold text-slate-800 text-xs uppercase mb-2 text-indigo-700">⚙️ Breakdown Komponen OEE Average</h3>
+        <div class="h-60">
+          <canvas id="chartOeeComponents"></canvas>
         </div>
       </div>
-
-      <!-- Downtime -->
-      <div>
-        <label class="block text-sm font-semibold text-slate-700 mb-1">Downtime (Menit)</label>
-        <input type="number" id="downtime_menit" placeholder="0 jika tidak ada" class="w-full p-3 border rounded-lg bg-slate-50 text-slate-800 border-slate-300 focus:ring-2 focus:ring-blue-500 outline-none">
+      <!-- Chart 3: OEE Trend -->
+      <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+        <h3 class="font-bold text-slate-800 text-xs uppercase mb-2 text-indigo-700">📈 Tren Skor OEE Harian</h3>
+        <div class="h-60">
+          <canvas id="chartOeeTrend"></canvas>
+        </div>
       </div>
-
-      <!-- Catatan / Error -->
-      <div>
-        <label class="block text-sm font-semibold text-slate-700 mb-1">Catatan / Kendala</label>
-        <textarea id="catatan" rows="3" placeholder="Contoh: Perbaikan moulding 15 menit..." class="w-full p-3 border rounded-lg bg-slate-50 text-slate-800 border-slate-300 focus:ring-2 focus:ring-blue-500 outline-none"></textarea>
-      </div>
-
-      <!-- Tombol Submit Besar (Mudah di-Tap di HP) -->
-      <button type="submit" id="btnSubmit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl shadow-lg transition duration-200 text-lg">
-        KIRIM LAPORAN SHIFT
-      </button>
-
-      <p id="statusMessage" class="text-center font-semibold text-sm mt-2 hidden"></p>
-    </form>
+    </div>
   </div>
 
+  <!-- ============================================== -->
+  <!-- TAB 3: TABEL APPROVAL WITH ADVANCED FILTER & EXPORT -->
+  <!-- ============================================== -->
+  <div id="tab-approval" class="p-4 max-w-6xl mx-auto hidden space-y-4">
+    <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-4">
+      <div class="flex flex-wrap justify-between items-center border-b pb-3 gap-2">
+        <div>
+          <h2 class="font-bold text-slate-800 text-base">Filter & Approval Laporan Shift</h2>
+          <p class="text-xs text-slate-500">Persetujuan, Verifikasi Data Operasional & Export Laporan</p>
+        </div>
+        
+        <div class="flex items-center gap-2">
+          <button type="button" onclick="exportToExcel()" class="bg-emerald-700 hover:bg-emerald-800 text-white px-3 py-1.5 rounded-lg text-xs font-bold shadow flex items-center gap-1">
+            📊 Export Excel
+          </button>
+          <button type="button" onclick="exportToPDF()" class="bg-red-700 hover:bg-red-800 text-white px-3 py-1.5 rounded-lg text-xs font-bold shadow flex items-center gap-1">
+            📄 Export PDF
+          </button>
+          <button type="button" onclick="loadApprovalData()" class="bg-blue-50 text-blue-600 border border-blue-200 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-blue-100">
+            🔄 Refresh
+          </button>
+        </div>
+      </div>
+
+      <!-- Advanced Approval Filters (Layout diperbaiki agar tidak tumpang tindih) -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
+        <div class="min-w-0">
+          <label class="block text-[11px] font-bold text-slate-600 mb-1">Cari Keywords</label>
+          <input type="text" id="appSearch" oninput="applyApprovalFilter()" placeholder="Mesin, WO, Shift..." class="w-full p-2 border rounded-lg text-xs bg-white">
+        </div>
+        <div class="min-w-0">
+          <label class="block text-[11px] font-bold text-slate-600 mb-1">Date Range (Mulai - Selesai)</label>
+          <div class="flex gap-1">
+            <input type="date" id="appStartDate" onchange="applyApprovalFilter()" class="w-1/2 p-1.5 border rounded-lg text-[11px] bg-white">
+            <input type="date" id="appEndDate" onchange="applyApprovalFilter()" class="w-1/2 p-1.5 border rounded-lg text-[11px] bg-white">
+          </div>
+        </div>
+        <div class="min-w-0">
+          <label class="block text-[11px] font-bold text-slate-600 mb-1">Koordinator</label>
+          <input type="text" id="appFilterKoordinator" oninput="applyApprovalFilter()" placeholder="Filter Nama..." class="w-full p-2 border rounded-lg text-xs bg-white">
+        </div>
+        <div class="min-w-0">
+          <label class="block text-[11px] font-bold text-slate-600 mb-1">Filter Department</label>
+          <select id="appFilterDept" onchange="applyApprovalFilter()" class="w-full p-2 border rounded-lg text-xs bg-white">
+            <option value="">Semua Department</option>
+            <option value="Blowing">Blowing</option>
+            <option value="Vinyl">Vinyl</option>
+            <option value="Sablon">Sablon</option>
+            <option value="Painting">Painting</option>
+            <option value="Assembly">Assembly</option>
+          </select>
+        </div>
+        <div class="min-w-0">
+          <label class="block text-[11px] font-bold text-slate-600 mb-1">Kategori Skor OEE</label>
+          <select id="appFilterOeeCategory" onchange="applyApprovalFilter()" class="w-full p-2 border rounded-lg text-xs bg-white">
+            <option value="">Semua Skor</option>
+            <option value="World Class">World Class (>85%)</option>
+            <option value="Good">Good (70% - 85%)</option>
+            <option value="Needs Improvement">Needs Improvement (&lt;70%)</option>
+          </select>
+        </div><div class="min-w-0"><label class="block text-[11px] font-bold text-slate-600 mb-1">Status</label><select id="appFilterStatus" onchange="applyApprovalFilter()" class="w-full p-2 border rounded-lg text-xs bg-white"><option value="">Semua Status</option><option>Submitted</option><option>Approved</option><option>Rejected</option></select></div>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table id="approvalTable" class="w-full text-left border-collapse min-w-[750px]">
+          <thead>
+            <tr class="bg-slate-100 text-slate-600 text-xs font-bold uppercase">
+              <th class="p-2.5 border-b">Tanggal / Shift</th>
+              <th class="p-2.5 border-b">Dept / Unit</th>
+              <th class="p-2.5 border-b">Koordinator</th>
+              <th class="p-2.5 border-b">Hasil OK / Target</th>
+              <th class="p-2.5 border-b">OEE Score</th>
+              <th class="p-2.5 border-b">Status</th>
+              <th class="p-2.5 border-b text-center">Aksi Approval</th>
+            </tr>
+          </thead>
+          <tbody id="tableBodyApproval" class="text-xs">
+            <tr><td colspan="7" class="p-4 text-center text-slate-400">Tekan Refresh untuk memuat data...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="flex justify-between items-center pt-2 border-t text-xs">
+        <span id="pageInfo" class="text-slate-500 font-medium">Halaman 1 dari 1</span>
+        <div class="flex gap-2">
+          <button id="btnPrevPage" onclick="changePage(-1)" class="px-3 py-1.5 bg-slate-200 text-slate-700 font-bold rounded-lg disabled:opacity-50">Previous</button>
+          <button id="btnNextPage" onclick="changePage(1)" class="px-3 py-1.5 bg-blue-600 text-white font-bold rounded-lg disabled:opacity-50">Next</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================== -->
+  <!-- TAB 4: MASTER DATA HUB (CRUD & INTERACTIVE MACHINES) -->
+  <!-- ============================================== -->
+  <div id="tab-master" class="p-4 max-w-5xl mx-auto hidden space-y-4">
+    <div class="bg-white p-3 rounded-xl shadow-sm border border-slate-200 flex space-x-2">
+      <button onclick="switchMasterSubTab('sub-karyawan')" id="btn-sub-karyawan" class="px-3 py-1.5 bg-blue-600 text-white font-bold text-xs rounded-lg">
+        👥 Master Karyawan (CRUD & Import)
+      </button>
+      <button onclick="switchMasterSubTab('sub-target')" id="btn-sub-target" class="px-3 py-1.5 bg-slate-100 text-slate-700 font-bold text-xs rounded-lg hover:bg-slate-200">
+        🎯 Master Target Output
+      </button>
+      <button onclick="switchMasterSubTab('sub-mesin')" id="btn-sub-mesin" class="px-3 py-1.5 bg-slate-100 text-slate-700 font-bold text-xs rounded-lg hover:bg-slate-200">
+        🏭 Master Unit Mesin
+      </button>
+    </div>
+
+    <!-- 1. SUB-TAB: MASTER KARYAWAN -->
+    <div id="sub-karyawan" class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-4">
+      <div class="flex flex-wrap justify-between items-center border-b pb-3 gap-2">
+        <div>
+          <h2 class="font-bold text-slate-800 text-base">CRUD & Import Master Karyawan</h2>
+          <p class="text-xs text-slate-500">Kelola personil secara manual atau via Upload CSV</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <label class="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer flex items-center gap-1">
+            📁 Import CSV
+            <input type="file" accept=".csv" class="hidden" onchange="importCSV('karyawan', this)">
+          </label>
+          <button onclick="openModalKaryawan()" class="bg-emerald-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-emerald-700">+ Tambah Manual</button>
+          <button onclick="loadKaryawanData()" class="bg-blue-50 text-blue-600 border border-blue-200 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-blue-100">🔄 Refresh</button>
+        </div>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse text-xs">
+          <thead>
+            <tr class="bg-slate-100 text-slate-600 font-bold uppercase">
+              <th class="p-2 border-b">NIK</th>
+              <th class="p-2 border-b">Nama Lengkap</th>
+              <th class="p-2 border-b">Department</th>
+              <th class="p-2 border-b">Jabatan</th>
+              <th class="p-2 border-b text-center">Aksi Interaktif</th>
+            </tr>
+          </thead>
+          <tbody id="tableBodyKaryawan">
+            <tr><td colspan="5" class="p-4 text-center text-slate-400">Tekan Refresh untuk memuat...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 2. SUB-TAB: MASTER TARGET PRODUK -->
+    <div id="sub-target" class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 hidden space-y-4">
+      <div class="flex flex-wrap justify-between items-center border-b pb-3 gap-2">
+        <div>
+          <h2 class="font-bold text-slate-800 text-base">CRUD & Import Master Target Output</h2>
+          <p class="text-xs text-slate-500">Kelola standar output produk per shift atau via Upload CSV</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <label class="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer flex items-center gap-1">
+            📁 Import CSV
+            <input type="file" accept=".csv" class="hidden" onchange="importCSV('target', this)">
+          </label>
+          <button onclick="openModalTarget()" class="bg-emerald-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-emerald-700">+ Tambah Target</button>
+          <button onclick="loadTargetData()" class="bg-blue-50 text-blue-600 border border-blue-200 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-blue-100">🔄 Refresh</button>
+        </div>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse text-xs">
+          <thead>
+            <tr class="bg-slate-100 text-slate-600 font-bold uppercase">
+              <th class="p-2 border-b">Department</th>
+              <th class="p-2 border-b">Nama Produk / Artikel</th>
+              <th class="p-2 border-b">Std Target / Shift</th>
+              <th class="p-2 border-b text-center">Aksi Interaktif</th>
+            </tr>
+          </thead>
+          <tbody id="tableBodyTarget">
+            <tr><td colspan="4" class="p-4 text-center text-slate-400">Belum ada data target terdaftar.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 3. SUB-TAB: MASTER UNIT / MESIN -->
+    <div id="sub-mesin" class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 hidden space-y-4">
+      <div class="flex flex-wrap justify-between items-center border-b pb-3 gap-2">
+        <div>
+          <h2 class="font-bold text-slate-800 text-base">Master Unit Mesin Interactive Hub</h2>
+          <p class="text-xs text-slate-500">Kelola unit mesin aktif, tambah mesin baru, atau import via CSV</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <button onclick="openModalMesin()" class="bg-emerald-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-emerald-700">+ Tambah Mesin Baru</button>
+          <label class="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer flex items-center gap-1">
+            📁 Import CSV Mesin
+            <input type="file" accept=".csv" class="hidden" onchange="importCSV('mesin', this)">
+          </label>
+        </div>
+      </div>
+      <div class="space-y-3 mt-4" id="masterUnitDetails"></div>
+    </div>
+  </div>
+
+  <div id="tab-qms" class="p-4 max-w-5xl mx-auto hidden space-y-4">
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-3"><div class="bg-white p-3 rounded-xl border shadow-sm"><p class="text-xs text-slate-500 font-bold">Sampel Diperiksa</p><p id="qKSampel" class="text-2xl font-black text-blue-700">0</p></div><div class="bg-white p-3 rounded-xl border shadow-sm"><p class="text-xs text-slate-500 font-bold">Defect Rate</p><p id="qKRate" class="text-2xl font-black text-red-600">0</p></div><div class="bg-white p-3 rounded-xl border shadow-sm"><p class="text-xs text-slate-500 font-bold">First Pass Yield</p><p id="qKFpy" class="text-2xl font-black text-emerald-600">0</p></div><div class="bg-white p-3 rounded-xl border shadow-sm"><p class="text-xs text-slate-500 font-bold">NCR Open</p><p id="qKNcr" class="text-2xl font-black text-amber-600">0</p></div></div>
+  <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3">
+    <h2 class="font-bold text-slate-700 border-b pb-2 text-sm">Form Inspeksi Kualitas (IPQC / Final)</h2>
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs"><div><label class="block text-[11px] font-bold text-slate-600 mb-1">Tanggal</label><input type="date" id="q_tanggal" class="w-full p-2 border rounded-lg bg-slate-50 text-sm"></div><div><label class="block text-[11px] font-bold text-slate-600 mb-1">Shift</label><select id="q_shift" class="w-full p-2 border rounded-lg bg-slate-50 text-sm"><option>1</option><option>2</option><option>3</option></select></div><div><label class="block text-[11px] font-bold text-slate-600 mb-1">Department</label><select id="q_dept" onchange="qDeptChange()" class="w-full p-2 border rounded-lg bg-slate-50 text-sm"><option>Blowing</option><option>Vinyl</option><option>Sablon</option><option>Painting</option><option>Assembly</option></select></div><div><label class="block text-[11px] font-bold text-slate-600 mb-1">Mesin / Line</label><select id="q_mesin" class="w-full p-2 border rounded-lg bg-slate-50 text-sm"></select></div><div><label class="block text-[11px] font-bold text-slate-600 mb-1">No. Work Order</label><input type="text" id="q_wo" class="w-full p-2 border rounded-lg bg-slate-50 text-sm uppercase font-mono" placeholder="WO-2026-XXXX"></div><div><label class="block text-[11px] font-bold text-slate-600 mb-1">Produk</label><input type="text" id="q_produk" list="produkList" class="w-full p-2 border rounded-lg bg-slate-50 text-sm"></div><div><label class="block text-[11px] font-bold text-slate-600 mb-1">Jumlah Sampel</label><input type="number" min="1" id="q_sampel" oninput="qCalc()" class="w-full p-2 border rounded-lg bg-slate-50 text-sm"></div><div><label class="block text-[11px] font-bold text-slate-600 mb-1">Disposisi</label><select id="q_disposisi" class="w-full p-2 border rounded-lg bg-slate-50 text-sm"><option>Pass</option><option>Hold</option><option>Rework</option><option>Reject</option></select></div></div>
+    <p class="text-xs font-bold text-slate-600">Jumlah unit defect per jenis (kosongkan jika 0)</p>
+    <div id="qDefects" class="grid grid-cols-2 md:grid-cols-3 gap-2"></div>
+    <textarea id="q_catatan" rows="2" placeholder="Catatan inspeksi / lokasi defect..." class="w-full p-2 border rounded-lg bg-slate-50 text-sm"></textarea>
+    <p id="qCalc" class="text-xs font-bold text-slate-600"></p>
+    <button type="button" onclick="saveInspeksi()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 rounded-lg text-sm">Simpan inspeksi</button>
+  </div>
+  <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm"><h3 class="font-bold text-xs text-indigo-700 mb-2">Pareto Defect</h3><div class="h-60"><canvas id="chartQmsPareto"></canvas></div></div>
+  <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
+    <div class="flex justify-between items-center mb-2"><h3 class="font-bold text-xs text-indigo-700">Riwayat Inspeksi & NCR</h3><button type="button" onclick="loadQms()" class="text-xs font-bold text-blue-600">Refresh</button></div>
+    <table class="w-full text-left text-xs min-w-[700px]"><thead><tr class="bg-slate-100 text-slate-600 font-bold"><th class="p-2">Tanggal</th><th class="p-2">Dept / Mesin</th><th class="p-2">WO / Produk</th><th class="p-2">Sampel</th><th class="p-2">Defect</th><th class="p-2">Disposisi</th><th class="p-2">NCR</th></tr></thead><tbody id="qTableBody"></tbody></table>
+  </div>
+</div>
+
+  <div id="tab-plan" class="p-4 max-w-6xl mx-auto hidden space-y-4">
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-3"><div class="bg-white p-3 rounded-xl border shadow-sm"><p class="text-xs text-slate-500 font-bold">Total Plan</p><p id="pKPlan" class="text-2xl font-black text-blue-700">0</p></div><div class="bg-white p-3 rounded-xl border shadow-sm"><p class="text-xs text-slate-500 font-bold">Total Actual OK</p><p id="pKAct" class="text-2xl font-black text-emerald-600">0</p></div><div class="bg-white p-3 rounded-xl border shadow-sm"><p class="text-xs text-slate-500 font-bold">Plan Attainment</p><p id="pKAch" class="text-2xl font-black text-indigo-700">0</p></div><div class="bg-white p-3 rounded-xl border shadow-sm"><p class="text-xs text-slate-500 font-bold">Belum Ada Laporan</p><p id="pKNo" class="text-2xl font-black text-amber-600">0</p></div></div>
+  <div id="planForm" class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3"><h2 class="font-bold text-slate-700 border-b pb-2 text-sm">Buat Jadwal Produksi</h2><div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs"><div><label class="block text-[11px] font-bold text-slate-600 mb-1">Tanggal</label><input type="date" id="p_tanggal" class="w-full p-2 border rounded-lg bg-slate-50 text-sm"></div><div><label class="block text-[11px] font-bold text-slate-600 mb-1">Shift</label><select id="p_shift" class="w-full p-2 border rounded-lg bg-slate-50 text-sm"><option>1</option><option>2</option><option>3</option></select></div><div><label class="block text-[11px] font-bold text-slate-600 mb-1">Department</label><select id="p_dept" onchange="planDept()" class="w-full p-2 border rounded-lg bg-slate-50 text-sm"><option>Blowing</option><option>Vinyl</option><option>Sablon</option><option>Painting</option><option>Assembly</option></select></div><div><label class="block text-[11px] font-bold text-slate-600 mb-1">Mesin / Line</label><select id="p_mesin" class="w-full p-2 border rounded-lg bg-slate-50 text-sm"></select></div><div><label class="block text-[11px] font-bold text-slate-600 mb-1">No. Work Order</label><input id="p_wo" class="w-full p-2 border rounded-lg bg-slate-50 text-sm uppercase font-mono" placeholder="WO-2026-XXXX"></div><div><label class="block text-[11px] font-bold text-slate-600 mb-1">Produk</label><input id="p_produk" list="produkList" onchange="planAutoQty()" class="w-full p-2 border rounded-lg bg-slate-50 text-sm"></div><div><label class="block text-[11px] font-bold text-slate-600 mb-1">Qty Plan (per shift)</label><input type="number" min="1" id="p_qty" class="w-full p-2 border rounded-lg bg-slate-50 text-sm"></div><div class="flex items-end"><button type="button" onclick="savePlan()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 rounded-lg text-sm">Simpan jadwal</button></div></div></div>
+  <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3">
+    <div class="grid grid-cols-3 gap-3 text-xs"><div><label class="block text-[11px] font-bold text-slate-600 mb-1">Dari</label><input type="date" id="pf_from" onchange="loadPlan()" class="w-full p-2 border rounded-lg bg-slate-50 text-sm"></div><div><label class="block text-[11px] font-bold text-slate-600 mb-1">Sampai</label><input type="date" id="pf_to" onchange="loadPlan()" class="w-full p-2 border rounded-lg bg-slate-50 text-sm"></div><div><label class="block text-[11px] font-bold text-slate-600 mb-1">Department</label><select id="pf_dept" onchange="loadPlan()" class="w-full p-2 border rounded-lg bg-slate-50 text-sm"><option value="">Semua</option><option>Blowing</option><option>Vinyl</option><option>Sablon</option><option>Painting</option><option>Assembly</option></select></div></div>
+    <div class="overflow-x-auto"><table class="w-full text-left text-xs min-w-[720px]"><thead><tr class="bg-slate-100 text-slate-600 font-bold"><th class="p-2">Tanggal / Shift</th><th class="p-2">Mesin</th><th class="p-2">WO / Produk</th><th class="p-2">Plan</th><th class="p-2">Actual OK</th><th class="p-2">Pencapaian</th><th class="p-2">Status</th><th class="p-2"></th></tr></thead><tbody id="planBody"></tbody></table></div>
+  </div>
+</div>
+
+  <!-- MODAL EDIT/ADD KARYAWAN -->
+  <div id="modalKaryawan" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm hidden z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-xl shadow-lg max-w-md w-full p-4 space-y-3">
+      <h3 class="font-bold text-slate-800 border-b pb-2 text-sm" id="modalKaryawanTitle">Form Data Karyawan</h3>
+      <input type="hidden" id="m_karyawan_id">
+      <div class="space-y-2 text-xs">
+        <div>
+          <label class="block font-bold mb-1">NIK</label>
+          <input type="text" id="m_nik" class="w-full p-2 border rounded-lg bg-slate-50">
+        </div>
+        <div>
+          <label class="block font-bold mb-1">Nama Lengkap</label>
+          <input type="text" id="m_nama" required class="w-full p-2 border rounded-lg bg-slate-50">
+        </div>
+        <div>
+          <label class="block font-bold mb-1">Department</label>
+          <select id="m_dept" class="w-full p-2 border rounded-lg bg-slate-50">
+            <option value="Blowing">Blowing</option>
+            <option value="Vinyl">Vinyl</option>
+            <option value="Sablon">Sablon</option>
+            <option value="Painting">Painting</option>
+            <option value="Assembly">Assembly</option>
+          </select>
+        </div>
+        <div>
+          <label class="block font-bold mb-1">Jabatan</label>
+          <input type="text" id="m_jabatan" value="Operator" class="w-full p-2 border rounded-lg bg-slate-50">
+        </div>
+      </div>
+      <div class="flex justify-end gap-2 pt-2 border-t">
+        <button type="button" onclick="closeModalKaryawan()" class="px-3 py-1.5 bg-slate-200 rounded-lg text-xs font-bold">Batal</button>
+        <button type="button" onclick="saveKaryawanManual()" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-bold">Simpan</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL TARGET PRODUK -->
+  <div id="modalTarget" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm hidden z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-xl shadow-lg max-w-md w-full p-4 space-y-3">
+      <h3 class="font-bold text-slate-800 border-b pb-2 text-sm">Form Target Produk</h3>
+      <input type="hidden" id="m_target_id">
+      <div class="space-y-2 text-xs">
+        <div>
+          <label class="block font-bold mb-1">Department</label>
+          <select id="mt_dept" class="w-full p-2 border rounded-lg bg-slate-50">
+            <option value="Blowing">Blowing</option>
+            <option value="Vinyl">Vinyl</option>
+            <option value="Sablon">Sablon</option>
+            <option value="Painting">Painting</option>
+            <option value="Assembly">Assembly</option>
+          </select>
+        </div>
+        <div>
+          <label class="block font-bold mb-1">Nama Produk / Artikel</label>
+          <input type="text" id="mt_produk" required class="w-full p-2 border rounded-lg bg-slate-50">
+        </div>
+        <div>
+          <label class="block font-bold mb-1">Standard Target / Shift</label>
+          <input type="number" id="mt_target" required class="w-full p-2 border rounded-lg bg-slate-50">
+        </div>
+      </div>
+      <div class="flex justify-end gap-2 pt-2 border-t">
+        <button type="button" onclick="closeModalTarget()" class="px-3 py-1.5 bg-slate-200 rounded-lg text-xs font-bold">Batal</button>
+        <button type="button" onclick="saveTargetManual()" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-bold">Simpan Target</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL MESIN BARU -->
+  <div id="modalMesin" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm hidden z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-xl shadow-lg max-w-md w-full p-4 space-y-3">
+      <h3 class="font-bold text-slate-800 border-b pb-2 text-sm">Form Tambah Unit Mesin Baru</h3>
+      <div class="space-y-2 text-xs">
+        <div>
+          <label class="block font-bold mb-1">Department Target</label>
+          <select id="mm_dept" class="w-full p-2 border rounded-lg bg-slate-50">
+            <option value="Blowing">Blowing</option>
+            <option value="Vinyl">Vinyl</option>
+            <option value="Sablon">Sablon</option>
+            <option value="Painting">Painting</option>
+            <option value="Assembly">Assembly</option>
+          </select>
+        </div>
+        <div>
+          <label class="block font-bold mb-1">Kode / Nama Unit Mesin Baru</label>
+          <input type="text" id="mm_nama" placeholder="Contoh: Blowing 31 / Line 21" required class="w-full p-2 border rounded-lg bg-slate-50">
+        </div>
+      </div>
+      <div class="flex justify-end gap-2 pt-2 border-t">
+        <button type="button" onclick="closeModalMesin()" class="px-3 py-1.5 bg-slate-200 rounded-lg text-xs font-bold">Batal</button>
+        <button type="button" onclick="saveMesinManual()" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-bold">Tambah Unit Mesin</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- JAVASCRIPT ENGINE & OFFLINE MANAGER -->
   <script>
-    // ==========================================
-    // 1. KREDENSIAL SUPABASE
-    // ==========================================
-    const SUPABASE_URL = "https://wuffqarrwetjwylyebhv.supabase.co";
-    const SUPABASE_ANON_KEY = "sb_publishable_mQgIRX9zv1BCZ1VRuwtOzw_tNVE_I71";
-    
-    const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    // CONFIGURATION & INDEXEDDB
+    const SUPABASE_URL = "https://ffpgcfwwvrwbsbjdmhfg.supabase.co";
+    const SUPABASE_ANON_KEY = "sb_publishable_RMlIEDPwSZq0b_F2PGn3DQ_lNdzwv6C";
+    let supabaseClient = null;
 
-    // Set tanggal default ke hari ini
-    document.getElementById('tanggal').valueAsDate = new Date();
+    function getSupabase() {
+      if (!supabaseClient && window.supabase && window.supabase.createClient) {
+        supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+      }
+      return supabaseClient;
+    }
 
-    // Generasi Otomatis Pilihan 60 Mesin & 15 Line Assembly
-    function updateUnitOptions() {
-      const kategori = document.getElementById('kategori').value;
-      const unitSelect = document.getElementById('nama_unit');
-      unitSelect.innerHTML = '';
+    // ============================================
+    // SECURITY HELPER: HTML Escaping (mencegah XSS)
+    // Semua data dinamis (nama karyawan, hasil import CSV, dll)
+    // WAJIB melewati fungsi ini sebelum dimasukkan ke innerHTML.
+    // ============================================
+    function escapeHtml(value) {
+      if (value === null || value === undefined) return '';
+      return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
 
-      if (kategori === 'Mesin') {
-        for (let i = 1; i <= 60; i++) {
-          const num = String(i).padStart(2, '0');
-          unitSelect.innerHTML += `<option value="Mesin ${num}">Mesin ${num}</option>`;
+    // Jumlahkan seluruh baris garapan dalam satu laporan (bukan hanya index 0)
+    // supaya laporan multi-produk tidak kehilangan data di tabel/export.
+    function aggregateGarapan(row) {
+      const list = Array.isArray(row.garapan) ? row.garapan : [];
+      const agg = { target: 0, ok: 0, ng: 0, downtime: 0, produkCount: list.length, produkNames: [] };
+      list.forEach(g => {
+        agg.target += g.target || 0;
+        agg.ok += g.hasil_ok || 0;
+        agg.ng += g.hasil_ng || 0;
+        agg.downtime += g.downtime_menit || 0;
+        if (g.produk) agg.produkNames.push(g.produk);
+      });
+      return agg;
+    }
+
+    // Offline First & Auto Sync Engine Listener
+    window.addEventListener('online', () => {
+      document.getElementById('networkStatus').innerText = '🟢 Online (Live Sync Active)';
+      SyncManager.processQueue();
+    });
+    window.addEventListener('offline', () => {
+      document.getElementById('networkStatus').innerText = '🔴 Offline Mode (Auto-Draft Activated)';
+    });
+
+    const SyncManager = {
+      dbName: 'MES_Offline_DB',
+      dbVersion: 1,
+      async getDB() {
+        return new Promise((resolve, reject) => {
+          const req = indexedDB.open(this.dbName, this.dbVersion);
+          req.onupgradeneeded = (e) => {
+            const db = e.target.result;
+            if (!db.objectStoreNames.contains('queue')) db.createObjectStore('queue', { keyPath: 'id', autoIncrement: true });
+          };
+          req.onsuccess = () => resolve(req.result);
+          req.onerror = () => reject(req.error);
+        });
+      },
+      async addQueue(payload) {
+        const db = await this.getDB();
+        const tx = db.transaction('queue', 'readwrite');
+        tx.objectStore('queue').add({ payload, timestamp: new Date().toISOString() });
+        this.updateBadge();
+      },
+      async getQueue() {
+        const db = await this.getDB();
+        return new Promise((resolve) => {
+          const tx = db.transaction('queue', 'readonly');
+          const req = tx.objectStore('queue').getAll();
+          req.onsuccess = () => resolve(req.result || []);
+        });
+      },
+      async clearQueue() {
+        const db = await this.getDB();
+        const tx = db.transaction('queue', 'readwrite');
+        tx.objectStore('queue').clear();
+        this.updateBadge();
+      },
+      async deleteQueueItem(id) {
+        const db = await this.getDB();
+        const tx = db.transaction('queue', 'readwrite');
+        tx.objectStore('queue').delete(id);
+        return new Promise((resolve) => { tx.oncomplete = () => resolve(); });
+      },
+      async updateBadge() {
+        const queue = await this.getQueue();
+        const badge = document.getElementById('pendingSyncBadge');
+        const syncBtn = document.getElementById('btnForceSync');
+        badge.innerText = `${queue.length} Pending Offline Drafts`;
+        if (queue.length > 0) {
+          badge.className = "text-xs font-bold bg-amber-600 px-3 py-1 rounded-full border border-amber-400 animate-pulse";
+          if (navigator.onLine) syncBtn.classList.remove('hidden');
+        } else {
+          badge.className = "text-xs font-bold bg-blue-800 px-3 py-1 rounded-full border border-blue-500";
+          syncBtn.classList.add('hidden');
         }
-      } else {
-        for (let i = 1; i <= 15; i++) {
-          const num = String(i).padStart(2, '0');
-          unitSelect.innerHTML += `<option value="Line ${num}">Line Assembly ${num}</option>`;
+      },
+      async processQueue() {
+        if (!navigator.onLine) return;
+        const queue = await this.getQueue();
+        if (queue.length === 0) return;
+        const client = getSupabase();
+        if (!client) return;
+
+        let successCount = 0;
+        let failCount = 0;
+        // PENTING: hanya hapus item yang BERHASIL sync satu per satu.
+        // Item yang gagal (mis. koneksi putus di tengah jalan) TETAP
+        // ada di antrean supaya tidak hilang, dan akan dicoba lagi nanti.
+        for (const item of queue) {
+          try {
+            let { error } = await client.from('laporan_shift').insert([item.payload]);
+            if (error && error.code === '23505') error = null;
+            if (!error) {
+              await this.deleteQueueItem(item.id);
+              successCount++;
+            } else {
+              failCount++;
+            }
+          } catch (e) {
+            failCount++;
+          }
+        }
+
+        this.updateBadge();
+
+        if (successCount > 0 && failCount === 0) {
+          alert(`✅ Auto-Sync Berhasil! ${successCount} Laporan Offline terunggah ke Cloud.`);
+        } else if (successCount > 0 && failCount > 0) {
+          alert(`⚠️ Sync Sebagian Berhasil: ${successCount} laporan terunggah, ${failCount} laporan masih di antrean dan akan dicoba lagi.`);
+        } else if (failCount > 0) {
+          alert(`❌ Auto-Sync Gagal: ${failCount} laporan masih tersimpan aman di antrean offline, akan dicoba lagi nanti.`);
         }
       }
+    };
+
+    let MASTER_UNITS = {
+      'Blowing': Array.from({length: 30}, (_, i) => `Blowing ${String(i+1).padStart(2, '0')}`),
+      'Vinyl': Array.from({length: 10}, (_, i) => `Vinyl ${String(i+1).padStart(2, '0')}`),
+      'Sablon': Array.from({length: 25}, (_, i) => `Sablon ${String(i+1).padStart(2, '0')}`),
+      'Painting': Array.from({length: 16}, (_, i) => `Painting ${String(i+1).padStart(2, '0')}`),
+      'Assembly': Array.from({length: 20}, (_, i) => `Line Assembly ${String(i+1).padStart(2, '0')}`)
+    };
+
+    const DOWNTIME_CATEGORIES = [
+      "Tidak Ada Downtime",
+      "Kerusakan Mesin (Mechanical Failure)",
+      "Gangguan Kelistrikan (Electrical Fault)",
+      "Set-Up & Adjustment Mold",
+      "Bahan Baku Habis / Delay Material",
+      "Pembersihan / Cleaning Routine",
+      "Ganti Artikel / Changeover",
+      "Tunggu Operator / Rest Time",
+      "Lain-Lain (Lihat Catatan)"
+    ];
+
+    function switchTab(tabId) {
+      // Pertahanan tambahan di sisi UI (bukan pengganti RLS di server):
+      // cegah pindah ke tab yang dibatasi kalau role user tidak diizinkan.
+      if (typeof RESTRICTED_TABS !== 'undefined' && RESTRICTED_TABS[tabId]) {
+        const role = (typeof currentUser !== 'undefined' && currentUser?.role) || 'operator';
+        if (!RESTRICTED_TABS[tabId].includes(role)) {
+          alert('Anda tidak memiliki akses ke menu ini.');
+          return;
+        }
+      }
+      ['tab-input', 'tab-dashboard', 'tab-approval', 'tab-plan', 'tab-qms', 'tab-master'].forEach(t => {
+        document.getElementById(t).classList.add('hidden');
+        const btn = document.getElementById('btn-' + t);
+        if (btn) btn.className = "px-4 py-2 bg-blue-800 text-white hover:bg-blue-600 rounded-lg whitespace-nowrap cursor-pointer";
+      });
+      
+      document.getElementById(tabId).classList.remove('hidden');
+      document.getElementById('btn-' + tabId).className = "px-4 py-2 bg-white text-blue-700 font-bold rounded-lg whitespace-nowrap shadow cursor-pointer";
+
+      if (tabId === 'tab-dashboard') {
+        updateDashMesinOptions();
+        renderDashboardAnalytics();
+      }
+      if (tabId === 'tab-approval') loadApprovalData();
+      if (tabId === 'tab-master') renderMasterView();
+      if (tabId === 'tab-qms') initQms();
+      if (tabId === 'tab-plan') initPlan();
     }
-    updateUnitOptions(); // Inisialisasi awal
 
-    // Handle Pengiriman Form
-    document.getElementById('shiftForm').addEventListener('submit', async (e) => {
-      e.preventDefault();
+    function switchMasterSubTab(subId) {
+      ['sub-mesin', 'sub-karyawan', 'sub-target'].forEach(s => {
+        document.getElementById(s).classList.add('hidden');
+        document.getElementById('btn-' + s).className = "px-3 py-1.5 bg-slate-100 text-slate-700 font-bold text-xs rounded-lg hover:bg-slate-200";
+      });
+      document.getElementById(subId).classList.remove('hidden');
+      document.getElementById('btn-' + subId).className = "px-3 py-1.5 bg-blue-600 text-white font-bold text-xs rounded-lg";
 
-      const btn = document.getElementById('btnSubmit');
+      if (subId === 'sub-karyawan') loadKaryawanData();
+      if (subId === 'sub-target') loadTargetData();
+      if (subId === 'sub-mesin') renderMasterView();
+    }
+
+    function updateMesinOptions() {
+      const dept = document.getElementById('department').value;
+      const selectMesin = document.getElementById('mesin');
+      selectMesin.innerHTML = '';
+      if (MASTER_UNITS[dept]) {
+        MASTER_UNITS[dept].forEach(m => {
+          selectMesin.innerHTML += `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`;
+        });
+      }
+    }
+
+    // Helper Opsi Mesin untuk Filter Dashboard
+    function updateDashMesinOptions() {
+      const dept = document.getElementById('dashFilterDept').value;
+      const selectMesin = document.getElementById('dashFilterMesin');
+      selectMesin.innerHTML = '<option value="">Semua Mesin/Line</option>';
+      
+      if (dept && MASTER_UNITS[dept]) {
+        MASTER_UNITS[dept].forEach(m => {
+          selectMesin.innerHTML += `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`;
+        });
+      } else if (!dept) {
+        Object.keys(MASTER_UNITS).forEach(d => {
+          MASTER_UNITS[d].forEach(m => {
+            selectMesin.innerHTML += `<option value="${escapeHtml(m)}">${escapeHtml(m)} (${escapeHtml(d)})</option>`;
+          });
+        });
+      }
+    }
+
+    let allKaryawanCache = [];
+    async function updateOperatorDropdown() {
+      const dept = document.getElementById('department').value;
+      const list = document.getElementById('karyawanList');
+      list.innerHTML = '';
+      
+      const filtered = allKaryawanCache.filter(k => !k.department || k.department === dept);
+      filtered.forEach(k => {
+        list.innerHTML += `<option value="${escapeHtml(k.nama)}">`;
+      });
+    }
+
+    function checkAssemblyMode() {
+      const dept = document.getElementById('department').value;
+      const modeWrapper = document.getElementById('assemblyModeWrapper');
+      const btnAddOp = document.getElementById('btnAddOperator');
+
+      if (dept === 'Assembly') {
+        modeWrapper.classList.remove('hidden');
+        btnAddOp.classList.remove('hidden');
+      } else {
+        modeWrapper.classList.add('hidden');
+        btnAddOp.classList.add('hidden');
+        document.getElementById('assembly_mode').value = 'Individu';
+      }
+      toggleOperatorMode();
+    }
+
+    function toggleOperatorMode() {
+      const mode = document.getElementById('assembly_mode').value;
+      const dept = document.getElementById('department').value;
+      const btnAddOp = document.getElementById('btnAddOperator');
+      const firstOpInput = document.getElementById('firstOpInput');
+
+      if (dept === 'Assembly' || mode === 'Tim') {
+        btnAddOp.classList.remove('hidden');
+      } else {
+        btnAddOp.classList.add('hidden');
+      }
+
+      if (mode === 'Tim') {
+        btnAddOp.innerText = "+ Tambah Anggota Tim (Kelompok Assembly)";
+        if (firstOpInput) firstOpInput.placeholder = "Nama Operator Utama";
+      } else {
+        btnAddOp.innerText = "+ Tambah Operator Individu (Line Assembly)";
+        if (firstOpInput) firstOpInput.placeholder = "Nama Operator 1";
+      }
+    }
+
+    function addOperatorInput() {
+      const currentOps = document.querySelectorAll('.op-row').length;
+      if (currentOps >= 15) return alert("Maksimal 15 operator!");
+      
+      const mode = document.getElementById('assembly_mode').value;
+      const placeholderText = (mode === 'Tim') ? `Nama Anggota Tim ${currentOps + 1}` : `Nama Operator ${currentOps + 1}`;
+
+      const div = document.createElement('div');
+      div.className = "flex gap-2 mt-2 op-row";
+      div.innerHTML = `
+        <input type="text" class="op-nama w-full p-2.5 border rounded-lg bg-slate-50 text-sm" placeholder="${placeholderText}" required list="karyawanList">
+        <select class="op-status p-2.5 border rounded-lg bg-slate-50 text-sm font-semibold min-w-[110px]">
+          <option value="Hadir">Hadir</option>
+          <option value="Rolling/Bantuan">Rolling</option>
+          <option value="Izin/Sakit">Izin/Sakit</option>
+        </select>
+        <button type="button" onclick="this.parentElement.remove()" class="px-3 bg-red-100 text-red-600 rounded-lg font-bold hover:bg-red-200">✕</button>
+      `;
+      document.getElementById('operatorContainer').appendChild(div);
+    }
+
+    function toggleIoTMode() {
+      const isChecked = document.getElementById('iotToggle').checked;
+      if (isChecked) {
+        alert("📡 IoT Telemetry Activated: Data counter & sensor downtime terhubung secara otomatis ke form.");
+        document.querySelectorAll('.garapan-card').forEach((card, i) => {
+          card.querySelector('.g-target').value = 500;
+          card.querySelector('.g-ok').value = 475;
+          card.querySelector('.g-ng').value = 10;
+          card.querySelector('.g-downtime').value = 15;
+        });
+        calculateShiftTotals();
+      }
+    }
+
+    const $ = id => document.getElementById(id);
+    const SHIFT_START = { 1: 7, 2: 15, 3: 23 };
+    const hh = n => String(n % 24).padStart(2, '0') + ':00';
+    const gf = (lbl, cls, extra) => `<div><label class="block text-[11px] font-bold text-slate-600 mb-1">${lbl}</label><input ${extra} class="${cls} w-full p-2 border rounded-lg text-sm"></div>`;
+
+    function buildSesi(pick) {
+      const box = $('garapanContainer');
+      box.innerHTML = '';
+      const dt = DOWNTIME_CATEGORIES.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+      const d = document.createElement('div');
+      d.className = 'garapan-card p-3.5 border border-slate-200 rounded-xl bg-slate-50 space-y-3 shadow-sm';
+      d.dataset.sesi = pick || '1';
+      d.innerHTML = `
+        <div class="flex flex-wrap justify-between items-center gap-2 border-b pb-2">
+          <select id="sesiPick" onchange="applyShiftTimes()" class="text-xs font-bold text-blue-700 bg-blue-100 px-2.5 py-1 rounded-md border border-blue-200"></select>
+          <label class="flex items-center gap-1 text-[11px] font-bold text-slate-600"><input type="checkbox" onchange="toggleIdle(this)"> Tidak produksi</label>
+        </div>
+        <input type="hidden" class="g-mulai"><input type="hidden" class="g-selesai">
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+          ${gf('No. Work Order', 'g-wo bg-white uppercase font-mono', 'type="text" placeholder="WO-2026-XXXX"')}
+          ${gf('No. Lot Material', 'g-lot bg-white uppercase font-mono', 'type="text" placeholder="LOT-88912"')}
+          ${gf('Nama Produk / Artikel', 'g-produk bg-white', 'type="text" list="produkList" onchange="autoTarget(this)" placeholder="Nama produk..."')}
+          ${gf('Target Output (2 jam)', 'g-target bg-white font-semibold', `type="number" min="0" placeholder="0" oninput="this.dataset.auto='';calculateShiftTotals()"`)}
+          ${gf('Hasil OK', 'g-ok bg-green-50 text-green-700 font-bold', 'type="number" min="0" placeholder="0" oninput="calculateShiftTotals()"')}
+          ${gf('Hasil NG (Reject)', 'g-ng bg-red-50 text-red-700 font-bold', 'type="number" min="0" placeholder="0" oninput="calculateShiftTotals()"')}
+          ${gf('Downtime (Menit)', 'g-downtime bg-amber-50 text-amber-700 font-bold', 'type="number" min="0" placeholder="0" oninput="calculateShiftTotals()"')}
+          <div class="col-span-2"><label class="block text-[11px] font-bold text-slate-600 mb-1">Kategori Alasan Downtime</label><select class="g-alasan w-full p-2 border rounded-lg text-xs bg-white font-semibold">${dt}</select></div>
+        </div>`;
+      box.appendChild(d);
+      applyShiftTimes(pick);
+    }
+
+    function applyShiftTimes(pick) {
+      const st = SHIFT_START[$('shift').value] || 7, sel = $('sesiPick'), cur = pick || sel.value || '1';
+      sel.innerHTML = [0, 1, 2, 3].map(i => `<option value="${i + 1}">Input ke-${i + 1}: ${hh(st + i * 2)} - ${hh(st + i * 2 + 2)}</option>`).join('');
+      sel.value = cur;
+      const i = +cur - 1, c = document.querySelector('.garapan-card');
+      c.dataset.sesi = cur;
+      c.querySelector('.g-mulai').value = hh(st + i * 2);
+      c.querySelector('.g-selesai').value = hh(st + i * 2 + 2);
+      calculateShiftTotals();
+    }
+
+    function copySesi(btn) {
+      const c = btn.closest('.garapan-card'), p = c.previousElementSibling;
+      ['g-wo', 'g-lot', 'g-produk'].forEach(k => { c.querySelector('.' + k).value = p.querySelector('.' + k).value; });
+      autoTarget(c.querySelector('.g-produk'));
+    }
+
+    function toggleIdle(cb) {
+      const c = cb.closest('.garapan-card');
+      c.dataset.idle = cb.checked ? '1' : '';
+      const set = (k, v) => { c.querySelector('.' + k).value = v; };
+      if (cb.checked) { set('g-target', 0); set('g-ok', 0); set('g-ng', 0); set('g-downtime', 120); }
+      else { set('g-target', ''); set('g-downtime', ''); }
+      calculateShiftTotals();
+    }
+
+    // Target per sesi = Master Target per shift / 4 (isi otomatis, tetap bisa diubah manual)
+    function autoTarget(inp) {
+      const c = inp.closest('.garapan-card'), tg = c.querySelector('.g-target');
+      const t = TARGET_CACHE.find(x => x.department === $('department').value && String(x.nama_produk).toLowerCase() === inp.value.trim().toLowerCase());
+      if (t && (!tg.value || tg.dataset.auto === '1')) { tg.value = Math.round(t.target_shift / 4); tg.dataset.auto = '1'; calculateShiftTotals(); }
+    }
+
+    function calculateShiftTotals() {
+      let totalMinutes = 0, totalTarget = 0, totalOK = 0, totalNG = 0, totalDowntimeMin = 0;
+      
+      document.querySelectorAll('.garapan-card').forEach(card => {
+        const mulai = card.querySelector('.g-mulai').value;
+        const selesai = card.querySelector('.g-selesai').value;
+        const target = parseFloat(card.querySelector('.g-target').value) || 0;
+        const ok = parseFloat(card.querySelector('.g-ok').value) || 0;
+        const ng = parseFloat(card.querySelector('.g-ng').value) || 0;
+        const dt = parseFloat(card.querySelector('.g-downtime').value) || 0;
+
+        if (mulai && selesai) {
+          const [mH, mM] = mulai.split(':').map(Number);
+          const [sH, sM] = selesai.split(':').map(Number);
+          let diff = (sH * 60 + sM) - (mH * 60 + mM);
+          if (diff < 0) diff += 24 * 60;
+          totalMinutes += diff;
+        }
+
+        totalTarget += target;
+        totalOK += ok;
+        totalNG += ng;
+        totalDowntimeMin += dt;
+      });
+
+      const totalHours = (totalMinutes / 60).toFixed(1);
+      const timeBadge = document.getElementById('timeSummaryBadge');
+      const warningBox = document.getElementById('validationWarning');
+      const warningText = document.getElementById('validationWarningText');
+
+      timeBadge.innerText = `Durasi input ini: ${totalHours} jam`;
+
+      if (totalMinutes <= 0 || totalMinutes > 480) {
+        timeBadge.className = "text-xs font-bold px-2.5 py-1 rounded-full bg-red-100 text-red-700 border border-red-300";
+        warningText.innerText = `Peringatan Shift: Akumulasi jam garapan (${totalHours} Jam) belum/melebihi jam kerja standar shift (8 Jam)! Harap periksa kembali jam garapan.`;
+        warningBox.classList.remove('hidden');
+      } else {
+        timeBadge.className = "text-xs font-bold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-300";
+        warningBox.classList.add('hidden');
+      }
+
+      const _o = calcOee(currentGarapan()); let availability = _o.avail;
+      let quality = _o.qual;
+      let performance = _o.perf;
+
+      const oeeTotal = _o.oee;
+
+      document.getElementById('oeeAvail').innerText = `${availability.toFixed(1)}%`;
+      document.getElementById('oeePerf').innerText = `${performance.toFixed(1)}%`;
+      document.getElementById('oeeQual').innerText = `${quality.toFixed(1)}%`;
+      document.getElementById('oeeTotal').innerText = `${oeeTotal.toFixed(1)}%`;
+    }
+
+    async function submitForm(status) {
       const statusMsg = document.getElementById('statusMessage');
 
-      btn.disabled = true;
-      btn.innerText = "Mengirim...";
-      statusMsg.classList.add('hidden');
+      // VALIDASI DASAR SISI KLIEN sebelum kirim (mencegah data kosong/tidak lengkap).
+      // Catatan: ini TIDAK menggantikan validasi di sisi server/Supabase (RLS/constraint),
+      // hanya membantu kualitas data & pengalaman pengguna.
+      const tanggal = document.getElementById('tanggal').value;
+      const koordinator = document.getElementById('koordinator').value.trim();
+      const mesin = document.getElementById('mesin').value;
+      if (!tanggal || !koordinator || !mesin) {
+        statusMsg.classList.remove('hidden');
+        statusMsg.className = "text-center font-bold text-sm bg-red-100 text-red-800 p-2 rounded-lg";
+        statusMsg.innerText = "⚠️ Tanggal, Koordinator, dan Mesin/Line wajib diisi.";
+        return;
+      }
 
-      // Ambil data form
+      const operators = [];
+      document.querySelectorAll('.op-row').forEach(row => {
+        const nama = row.querySelector('.op-nama').value.trim();
+        const opStatus = row.querySelector('.op-status').value;
+        if (nama) operators.push({ nama, status: opStatus });
+      });
+
+      if (operators.length === 0) {
+        statusMsg.classList.remove('hidden');
+        statusMsg.className = "text-center font-bold text-sm bg-red-100 text-red-800 p-2 rounded-lg";
+        statusMsg.innerText = "⚠️ Minimal 1 operator wajib diisi.";
+        return;
+      }
+
+      const garapan = [];
+      let garapanIncomplete = false, negative = false;
+      document.querySelectorAll('.garapan-card').forEach(card => {
+        const wo = card.querySelector('.g-wo').value.trim();
+        const produk = card.querySelector('.g-produk').value.trim();
+        const idle = card.dataset.idle === '1';
+        ['g-target', 'g-ok', 'g-ng', 'g-downtime'].forEach(k => { if (parseFloat(card.querySelector('.' + k).value) < 0) negative = true; });
+        if (status === 'Submitted' && ((!idle && (!wo || !produk || ((parseFloat(card.querySelector('.g-ok').value) || 0) + (parseFloat(card.querySelector('.g-ng').value) || 0)) <= 0)) || (idle && card.querySelector('.g-alasan').value === DOWNTIME_CATEGORIES[0]))) garapanIncomplete = true;
+        garapan.push({
+          sesi: parseInt(card.dataset.sesi), tidak_produksi: idle, work_order: wo,
+          lot_number: card.querySelector('.g-lot').value.trim(),
+          produk: produk,
+          jam_mulai: card.querySelector('.g-mulai').value,
+          jam_selesai: card.querySelector('.g-selesai').value,
+          target: parseFloat(card.querySelector('.g-target').value) || 0,
+          hasil_ok: parseFloat(card.querySelector('.g-ok').value) || 0,
+          hasil_ng: parseFloat(card.querySelector('.g-ng').value) || 0,
+          downtime_menit: parseFloat(card.querySelector('.g-downtime').value) || 0,
+          alasan_downtime: card.querySelector('.g-alasan').value
+        });
+      });
+
+      if (negative) {
+        statusMsg.classList.remove('hidden');
+        statusMsg.className = "text-center font-bold text-sm bg-red-100 text-red-800 p-2 rounded-lg";
+        statusMsg.innerText = "⚠️ Target, OK, NG, dan downtime tidak boleh negatif.";
+        return;
+      }
+      if (garapan.length === 0 || garapanIncomplete) {
+        statusMsg.classList.remove('hidden');
+        statusMsg.className = "text-center font-bold text-sm bg-red-100 text-red-800 p-2 rounded-lg";
+        statusMsg.innerText = "⚠️ Kirim laporan: keempat sesi wajib berisi No. WO, Produk, dan hasil OK/NG (atau centang Tidak produksi + alasan). Sesi yang belum lengkap tetap bisa disimpan ke draft.";
+        return;
+      }
+
       const payload = {
-        tanggal: document.getElementById('tanggal').value,
-        shift: parseInt(document.getElementById('shift').value),
-        kategori: document.getElementById('kategori').value,
-        nama_unit: document.getElementById('nama_unit').value,
-        operator: document.getElementById('operator').value,
-        target_output: parseInt(document.getElementById('target_output').value) || 0,
-        actual_output: parseInt(document.getElementById('actual_output').value) || 0,
-        downtime_menit: parseInt(document.getElementById('downtime_menit').value) || 0,
-        catatan: document.getElementById('catatan').value
+        tanggal: tanggal,
+        shift: document.getElementById('shift').value,
+        koordinator: koordinator,
+        department: document.getElementById('department').value,
+        mesin: mesin,
+        assembly_mode: document.getElementById('assembly_mode').value,
+        operators: operators,
+        garapan: garapan,
+        oee_score: calcOee(garapan).oee,
+        status: status,
+        created_by: (typeof currentUser !== 'undefined' && currentUser) ? currentUser.email : null,
+        created_at: new Date().toISOString()
       };
 
-      // Simpan ke Supabase
-      const { data, error } = await supabase.from('log_shift').insert([payload]);
+      statusMsg.classList.remove('hidden');
+      const say = (cls, msg) => { statusMsg.className = 'text-center font-bold text-sm p-2 rounded-lg ' + cls; statusMsg.innerText = msg; };
+      const c = getSupabase();
+      if (!(navigator.onLine && c) && status === 'Draft') return say('bg-amber-100 text-amber-800', '⚠️ Offline: sesi belum bisa disimpan ke draft. Coba lagi saat koneksi kembali.');
+      if (!(navigator.onLine && c)) {
+        await SyncManager.addQueue(payload);
+        return say('bg-amber-100 text-amber-800', '📦 Offline: tersimpan di antrean browser. Cek duplikat dilakukan saat sinkron.');
+      }
+      let dq = c.from('laporan_shift').select('id,status').eq('tanggal', payload.tanggal).eq('shift', payload.shift).eq('mesin', payload.mesin).neq('status', 'Rejected');
+      if (editingReportId) dq = dq.neq('id', editingReportId);
+      const dup = await dq.limit(1);
+      if (dup.data && dup.data.length) return say('bg-red-100 text-red-800', `⛔ Laporan ${payload.mesin} Shift ${payload.shift} tanggal ${payload.tanggal} sudah ada (status ${dup.data[0].status}). Lanjutkan lewat daftar "Laporan Anda" di atas.`);
+      let r;
+      if (editingReportId) {
+        const { created_at, created_by, ...upd } = payload;
+        upd.reject_reason = null;
+        r = await c.from('laporan_shift').update(upd).eq('id', editingReportId).select('id').single();
+      } else r = await c.from('laporan_shift').insert([payload]).select('id').single();
+      if (r.error) {
+        if (r.error.code) return say('bg-red-100 text-red-800', '❌ Ditolak server: ' + r.error.message);
+        await SyncManager.addQueue(payload);
+        return say('bg-amber-100 text-amber-800', '⚠️ Koneksi bermasalah. Tersimpan di antrean offline dan dikirim ulang otomatis.');
+      }
+      if (status === 'Draft') { editingReportId = r.data.id; editingKey = [payload.tanggal, String(payload.shift), payload.mesin].join('|'); markSaved(); say('bg-emerald-100 text-emerald-800', `💾 Tersimpan di draft (${sesiCount(payload)} dari 4 sesi lengkap). Kirim laporan di akhir shift.`); }
+      else { say('bg-emerald-100 text-emerald-800', '🚀 Laporan terkirim untuk approval.'); cancelEdit(); }
+      loadMyReports();
+    }
+
+    // Dashboard Analytics (Dengan Fitur Filter Interaktif)
+    let chartParetoInstance = null;
+    let chartComponentsInstance = null;
+    let chartTrendInstance = null;
+
+    function resetDashFilters() {
+      document.getElementById('dashStartDate').value = '';
+      document.getElementById('dashEndDate').value = '';
+      document.getElementById('dashFilterShift').value = '';
+      document.getElementById('dashFilterDept').value = '';
+      document.getElementById('dashFilterMesin').value = '';
+      updateDashMesinOptions();
+      renderDashboardAnalytics();
+    }
+
+    async function renderDashboardAnalytics() {
+      let rawData = [];
+      if (navigator.onLine && getSupabase()) {
+        // Dibatasi 1000 baris terbaru agar tidak menarik seluruh histori setiap
+        // kali filter berubah. Untuk analisis jangka panjang, pertimbangkan agregasi di sisi server (RPC/view).
+        const { data } = await getSupabase()
+          .from('laporan_shift')
+          .select('*').neq('status', 'Draft')
+          .order('created_at', { ascending: false })
+          .limit(1000);
+        if (data) rawData = data;
+      }
+
+      // Ambil nilai Filter Dashboard
+      const startDate = document.getElementById('dashStartDate').value;
+      const endDate = document.getElementById('dashEndDate').value;
+      const shiftFilter = document.getElementById('dashFilterShift').value;
+      const deptFilter = document.getElementById('dashFilterDept').value;
+      const mesinFilter = document.getElementById('dashFilterMesin').value;
+
+      // Filter Data secara Dinamis
+      const filteredData = rawData.filter(row => {
+        let match = true;
+        if (startDate && row.tanggal < startDate) match = false;
+        if (endDate && row.tanggal > endDate) match = false;
+        if (shiftFilter && String(row.shift) !== String(shiftFilter)) match = false;
+        if (deptFilter && row.department !== deptFilter) match = false;
+        if (mesinFilter && row.mesin !== mesinFilter) match = false;
+        return match;
+      });
+
+      let totalOee = 0, totalOk = 0, totalNg = 0, totalDt = 0;
+      let sumAvail = 0, sumPerf = 0, sumQual = 0;
+      const downtimeReasonsMap = {};
+      const dateOeeMap = {};
+
+      filteredData.forEach(row => {
+        const o = calcOee(row.garapan, row.oee_score); totalOee += o.oee;
+        
+        // Perhitungan Garapan
+        let rowOk = 0, rowNg = 0, rowDt = 0, rowTarget = 0;
+        (row.garapan || []).forEach(g => {
+          rowOk += g.hasil_ok || 0;
+          rowNg += g.hasil_ng || 0;
+          rowDt += g.downtime_menit || 0;
+          rowTarget += g.target || 0;
+
+          const reason = g.alasan_downtime || 'Uncategorized';
+          if (reason !== "Tidak Ada Downtime") {
+            downtimeReasonsMap[reason] = (downtimeReasonsMap[reason] || 0) + (g.downtime_menit || 0);
+          }
+        });
+
+        totalOk += rowOk;
+        totalNg += rowNg;
+        totalDt += rowDt;
+
+        // Hitung estimasi Komponen OEE sederhana per Laporan
+        let avail = o.avail;
+        let perf = o.perf;
+        let qual = o.qual;
+
+        sumAvail += avail;
+        sumPerf += perf;
+        sumQual += qual;
+
+        // Daily Trend Data
+        const dateKey = row.tanggal || 'N/A';
+        if (!dateOeeMap[dateKey]) dateOeeMap[dateKey] = [];
+        dateOeeMap[dateKey].push(o.oee);
+      });
+
+      const count = filteredData.length || 1;
+      const avgOEE = (totalOee / count).toFixed(1);
+      const avgAvail = (sumAvail / count).toFixed(1);
+      const avgPerf = (sumPerf / count).toFixed(1);
+      const avgQual = (sumQual / count).toFixed(1);
+
+      document.getElementById('dashOeeAvg').innerText = `${filteredData.length ? avgOEE : 0}%`;
+      document.getElementById('dashTotalOk').innerText = `${totalOk.toLocaleString()} Pcs`;
+      document.getElementById('dashTotalNg').innerText = `${totalNg.toLocaleString()} Pcs`;
+      document.getElementById('dashTotalDt').innerText = `${totalDt} Mins`;
+
+      // 1. Chart Pareto Downtime
+      const ctxPareto = document.getElementById('chartParetoDowntime').getContext('2d');
+      if (chartParetoInstance) chartParetoInstance.destroy();
+
+      const paretoLabels = Object.keys(downtimeReasonsMap);
+      chartParetoInstance = new Chart(ctxPareto, {
+        type: 'bar',
+        data: {
+          labels: paretoLabels.length ? paretoLabels : ['Kerusakan Mesin', 'Set-up Mold', 'Bahan Habis'],
+          datasets: [{
+            label: 'Total Downtime (Menit)',
+            data: paretoLabels.length ? paretoLabels.map(k => downtimeReasonsMap[k]) : [0, 0, 0],
+            backgroundColor: '#ef4444'
+          }]
+        },
+        options: { responsive: true, maintainAspectRatio: false }
+      });
+
+      // 2. Chart OEE Breakdown Components
+      const ctxComp = document.getElementById('chartOeeComponents').getContext('2d');
+      if (chartComponentsInstance) chartComponentsInstance.destroy();
+
+      chartComponentsInstance = new Chart(ctxComp, {
+        type: 'bar',
+        data: {
+          labels: ['Availability', 'Performance', 'Quality'],
+          datasets: [{
+            data: filteredData.length ? [avgAvail, avgPerf, avgQual] : [0, 0, 0],
+            backgroundColor: ['#3b82f6', '#f59e0b', '#10b981']
+          }]
+        },
+        options: { responsive: true, maintainAspectRatio: false }
+      });
+
+      // 3. Chart OEE Score Trend
+      const ctxTrend = document.getElementById('chartOeeTrend').getContext('2d');
+      if (chartTrendInstance) chartTrendInstance.destroy();
+
+      const trendLabels = Object.keys(dateOeeMap).sort();
+      const trendValues = trendLabels.map(d => {
+        const arr = dateOeeMap[d];
+        return (arr.reduce((a,b) => a+b, 0) / arr.length).toFixed(1);
+      });
+
+      chartTrendInstance = new Chart(ctxTrend, {
+        type: 'line',
+        data: {
+          labels: trendLabels.length ? trendLabels : ['Belum Ada Data'],
+          datasets: [{
+            label: 'OEE Score (%)',
+            data: trendLabels.length ? trendValues : [0],
+            borderColor: '#6366f1',
+            tension: 0.3,
+            fill: false
+          }]
+        },
+        options: { responsive: true, maintainAspectRatio: false }
+      });
+    }
+
+    // Filter Approval Tingkat Lanjut
+    let allApprovalData = [];
+    let filteredApprovalData = [];
+    let currentPage = 1;
+    const itemsPerPage = 5;
+
+    async function loadApprovalData() {
+      if (navigator.onLine && getSupabase()) {
+        // Dibatasi 500 baris terbaru supaya tidak menarik seluruh tabel sekaligus
+        // ke browser (penting saat data sudah besar). Untuk histori lebih lama,
+        // sebaiknya tambahkan filter tanggal lalu query ulang ke server.
+        const { data } = await getSupabase()
+          .from('laporan_shift')
+          .select('*').neq('status', 'Draft')
+          .order('created_at', { ascending: false })
+          .limit(500);
+        if (data) allApprovalData = data;
+      }
+      applyApprovalFilter();
+    }
+
+    function applyApprovalFilter() {
+      const search = document.getElementById('appSearch').value.toLowerCase();
+      const startDate = document.getElementById('appStartDate').value;
+      const endDate = document.getElementById('appEndDate').value;
+      const koordinator = document.getElementById('appFilterKoordinator').value.toLowerCase();
+      const dept = document.getElementById('appFilterDept').value;
+      const oeeCategory = document.getElementById('appFilterOeeCategory').value;
+
+      filteredApprovalData = allApprovalData.filter(item => {
+        const matchSearch = (item.koordinator || '').toLowerCase().includes(search) || 
+                            (item.mesin || '').toLowerCase().includes(search) ||
+                            (item.shift || '').toString().includes(search);
+        const matchDept = !dept || item.department === dept;
+        const matchKoor = !koordinator || (item.koordinator || '').toLowerCase().includes(koordinator);
+        
+        let matchDate = true;
+        if (startDate && item.tanggal < startDate) matchDate = false;
+        if (endDate && item.tanggal > endDate) matchDate = false;
+
+        let matchOeeCat = true;
+        const score = oeeOf(item);
+        if (oeeCategory === 'World Class' && score < 85) matchOeeCat = false;
+        if (oeeCategory === 'Good' && (score < 70 || score >= 85)) matchOeeCat = false;
+        if (oeeCategory === 'Needs Improvement' && score >= 70) matchOeeCat = false;
+
+        const st = document.getElementById('appFilterStatus').value;
+        return matchSearch && matchDept && matchKoor && matchDate && matchOeeCat && (!st || item.status === st);
+      });
+
+      currentPage = 1;
+      renderApprovalTable();
+    }
+
+    function renderApprovalTable() {
+      const totalPages = Math.ceil(filteredApprovalData.length / itemsPerPage) || 1;
+      const pageData = filteredApprovalData.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+      const me = currentUser?.email;
+      const cls = { Approved: 'bg-emerald-100 text-emerald-700', Rejected: 'bg-red-100 text-red-700', Submitted: 'bg-blue-100 text-blue-700', Draft: 'bg-slate-200 text-slate-600' };
+      $('tableBodyApproval').innerHTML = pageData.length ? pageData.map(row => {
+        const agg = aggregateGarapan(row), o = calcOee(row.garapan, row.oee_score), id = escapeHtml(row.id);
+        let act = '<span class="text-slate-400 text-[10px]">Menunggu operator</span>';
+        if (row.status === 'Approved') act = `<span class="text-emerald-600 font-bold text-[10px]">✓ ${escapeHtml(row.approved_by || '')}</span>`;
+        else if (row.status === 'Submitted') act = row.created_by === me
+          ? '<span class="text-slate-400 text-[10px]">Laporan Anda, perlu approver lain</span>'
+          : `<button data-action="approve-shift" data-id="${id}" class="bg-emerald-600 text-white px-2.5 py-1 rounded font-bold text-[10px]">Approve</button> <button data-action="reject-shift" data-id="${id}" class="bg-red-600 text-white px-2.5 py-1 rounded font-bold text-[10px]">Reject</button>`;
+        return `<tr class="border-b hover:bg-slate-50">
+          <td class="p-2.5 font-semibold">${escapeHtml(row.tanggal)} (Shift ${escapeHtml(row.shift)})</td>
+          <td class="p-2.5">${escapeHtml(row.department)} / ${escapeHtml(row.mesin)}</td>
+          <td class="p-2.5 font-bold text-slate-700">${escapeHtml(row.koordinator)}</td>
+          <td class="p-2.5 font-mono">${agg.ok} / ${agg.target}</td>
+          <td class="p-2.5 font-black text-amber-600" title="A ${o.avail.toFixed(1)}% · P ${o.perf.toFixed(1)}% · Q ${o.qual.toFixed(1)}%">${o.oee.toFixed(1)}%</td>
+          <td class="p-2.5"><span class="px-2 py-0.5 rounded text-[10px] font-bold ${cls[row.status] || ''}">${escapeHtml(row.status)}</span>${row.status === 'Rejected' && row.reject_reason ? `<div class="text-[10px] text-red-600 mt-0.5">${escapeHtml(row.reject_reason)}</div>` : ''}</td>
+          <td class="p-2.5 text-center">${act}</td></tr>`;
+      }).join('') : '<tr><td colspan="7" class="p-4 text-center text-slate-400">Tidak ada data sesuai filter.</td></tr>';
+      $('pageInfo').innerText = `Halaman ${currentPage} dari ${totalPages} (Total: ${filteredApprovalData.length} Data)`;
+      $('btnPrevPage').disabled = currentPage === 1;
+      $('btnNextPage').disabled = currentPage === totalPages;
+    }
+
+    function changePage(direction) { currentPage += direction; renderApprovalTable(); }
+
+    $('tableBodyApproval').addEventListener('click', e => {
+      const b = e.target.closest('button[data-action]');
+      if (b && b.dataset.action === 'approve-shift') decideShift(b.dataset.id, true);
+      if (b && b.dataset.action === 'reject-shift') decideShift(b.dataset.id, false);
+    });
+
+    async function decideShift(id, approve) {
+      const c = getSupabase();
+      if (!navigator.onLine || !c) return alert('Perlu koneksi internet.');
+      const row = allApprovalData.find(x => String(x.id) === String(id));
+      if (!row || row.status !== 'Submitted') return alert('Hanya laporan berstatus Submitted yang dapat diproses.');
+      if (row.created_by === currentUser.email) return alert('Anda tidak boleh memproses laporan yang Anda buat sendiri.');
+      const now = new Date().toISOString();
+      let upd;
+      if (approve) {
+        if (!confirm('Setujui laporan ini? Setelah disetujui laporan terkunci.')) return;
+        upd = { status: 'Approved', approved_by: currentUser.email, approved_at: now, reject_reason: null };
+      } else {
+        const why = prompt('Alasan penolakan (wajib diisi, akan tampil ke operator):');
+        if (!why || !why.trim()) return;
+        upd = { status: 'Rejected', reject_reason: why.trim(), rejected_by: currentUser.email, rejected_at: now };
+      }
+      const { error } = await c.from('laporan_shift').update(upd).eq('id', id).eq('status', 'Submitted');
+      if (error) alert('❌ Gagal: ' + error.message); else loadApprovalData();
+    }
+
+    // Ekspor Laporan Excel & PDF Engine
+    function exportToExcel() {
+      if (filteredApprovalData.length === 0) return alert("Tidak ada data untuk diekspor!");
+      
+      // Setiap baris garapan diekspor sebagai baris terpisah supaya laporan
+      // multi-produk tidak kehilangan data (sebelumnya hanya produk pertama yang terekspor).
+      const exportRows = [];
+      filteredApprovalData.forEach(r => {
+        const garapanList = Array.isArray(r.garapan) && r.garapan.length > 0 ? r.garapan : [{}];
+        garapanList.forEach(g => {
+          exportRows.push({
+            Tanggal: r.tanggal,
+            Shift: r.shift,
+            Department: r.department,
+            Mesin: r.mesin,
+            Koordinator: r.koordinator,
+            Produk: g.produk || '-',
+            Work_Order: g.work_order || '-',
+            Target: g.target || 0,
+            Hasil_OK: g.hasil_ok || 0,
+            Hasil_NG: g.hasil_ng || 0,
+            Downtime_Menit: g.downtime_menit || 0,
+            Alasan_Downtime: g.alasan_downtime || '-',
+            OEE_Score: `${oeeOf(r).toFixed(1)}%`,
+            Status: r.status
+          });
+        });
+      });
+
+      const worksheet = XLSX.utils.json_to_sheet(exportRows);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Laporan MES Shift");
+      XLSX.writeFile(workbook, `MES_Laporan_Shift_${new Date().toISOString().split('T')[0]}.xlsx`);
+    }
+
+    function exportToPDF() {
+      if (filteredApprovalData.length === 0) return alert("Tidak ada data untuk diekspor!");
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF();
+
+      doc.text("Enterprise MES - Ringkasan Laporan Shift", 14, 15);
+
+      // Total Hasil OK dijumlahkan dari SEMUA baris garapan, bukan hanya produk pertama.
+      const tableData = filteredApprovalData.map(r => {
+        const agg = aggregateGarapan(r);
+        return [
+          r.tanggal,
+          `Shift ${r.shift}`,
+          r.department,
+          r.mesin,
+          r.koordinator,
+          `${agg.ok} / ${agg.target} Pcs${agg.produkCount > 1 ? ` (${agg.produkCount} produk)` : ''}`,
+          `${oeeOf(r).toFixed(1)}%`,
+          r.status
+        ];
+      });
+
+      doc.autoTable({
+        head: [['Tanggal', 'Shift', 'Dept', 'Mesin', 'Koordinator', 'Hasil OK/Target', 'OEE', 'Status']],
+        body: tableData,
+        startY: 20
+      });
+
+      doc.save(`MES_Laporan_Shift_${new Date().toISOString().split('T')[0]}.pdf`);
+    }
+
+    // MASTER DATA IMPORT & CRUD ENGINE
+    function importCSV(type, inputElement) {
+      const file = inputElement.files[0];
+      if (!file) return;
+
+      Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        complete: async function(results) {
+          const parsedData = results.data;
+          if (!parsedData || parsedData.length === 0) return alert("File CSV kosong!");
+
+          if (type === 'karyawan') {
+            const formatted = parsedData.map(r => ({
+              nik: r.nik || r.NIK || 'NIK-' + Math.floor(Math.random() * 100000),
+              nama: r.nama || r.Nama || r.NAMA || '',
+              department: r.department || r.Department || 'Blowing',
+              jabatan: r.jabatan || r.Jabatan || 'Operator'
+            })).filter(item => item.nama !== '');
+
+            if (navigator.onLine && getSupabase()) {
+              await getSupabase().from('master_karyawan').upsert(formatted);
+            }
+            loadKaryawanData();
+
+          } else if (type === 'target') {
+            const formatted = parsedData.map(r => ({
+              department: r.department || r.Department || 'Blowing',
+              nama_produk: r.nama_produk || r.produk || r.Produk || '',
+              target_shift: parseFloat(r.target_shift || r.target || r.Target) || 0
+            })).filter(item => item.nama_produk !== '');
+
+            if (navigator.onLine && getSupabase()) {
+              await saveTargetsBulk(formatted);
+            }
+            loadTargetData();
+
+          } else if (type === 'mesin') {
+            const rowsToInsert = [];
+            parsedData.forEach(r => {
+              const dept = r.department || r.Department || 'Blowing';
+              const namaMesin = (r.nama_mesin || r.mesin || r.Unit || '').trim();
+              if (dept && namaMesin) {
+                if (!MASTER_UNITS[dept]) MASTER_UNITS[dept] = [];
+                if (!MASTER_UNITS[dept].includes(namaMesin)) {
+                  MASTER_UNITS[dept].push(namaMesin);
+                  rowsToInsert.push({ department: dept, nama_mesin: namaMesin });
+                }
+              }
+            });
+
+            if (navigator.onLine && getSupabase() && rowsToInsert.length > 0) {
+              const { error } = await getSupabase().from('master_mesin').insert(rowsToInsert);
+              if (error) {
+                masterMesinTableAvailable = false;
+                alert("⚠️ Data mesin di-import hanya sementara di browser. Tabel 'master_mesin' belum tersedia/gagal diakses di Supabase.");
+              } else {
+                alert("✅ Konfigurasi Unit/Mesin Berhasil Diperbarui & Disimpan ke Server!");
+              }
+            } else {
+              alert("✅ Konfigurasi Unit/Mesin Berhasil Diperbarui (lokal, belum tersinkron ke server).");
+            }
+            updateMesinOptions();
+            renderMasterView();
+          }
+
+          inputElement.value = '';
+        }
+      });
+    }
+
+    function openModalKaryawan(id = null) {
+      document.getElementById('modalKaryawan').classList.remove('hidden');
+      document.getElementById('m_karyawan_id').value = id || '';
+      if (!id) {
+        document.getElementById('m_nik').value = '';
+        document.getElementById('m_nama').value = '';
+      }
+    }
+    function closeModalKaryawan() { document.getElementById('modalKaryawan').classList.add('hidden'); }
+
+    async function saveKaryawanManual() {
+      const item = {
+        nik: document.getElementById('m_nik').value || 'NIK-' + Date.now(),
+        nama: document.getElementById('m_nama').value,
+        department: document.getElementById('m_dept').value,
+        jabatan: document.getElementById('m_jabatan').value
+      };
+
+      if (!item.nama) return alert('Nama Karyawan wajib diisi!');
+      if (navigator.onLine && getSupabase()) {
+        await getSupabase().from('master_karyawan').upsert([item]);
+      }
+      closeModalKaryawan();
+      loadKaryawanData();
+    }
+
+    async function loadKaryawanData() {
+      const tbody = document.getElementById('tableBodyKaryawan');
+      tbody.innerHTML = '<tr><td colspan="5" class="p-4 text-center text-slate-400">Memuat data...</td></tr>';
+      let data = [];
+
+      if (navigator.onLine && getSupabase()) {
+        const res = await getSupabase().from('master_karyawan').select('*').order('nama', {ascending: true});
+        if (!res.error && res.data) data = res.data;
+      }
+
+      allKaryawanCache = data;
+      updateOperatorDropdown();
+
+      if (data.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="p-4 text-center text-slate-400">Belum ada data karyawan. Gunakan fitur Tambah / Import CSV.</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = '';
+      data.forEach(item => {
+        tbody.innerHTML += `
+          <tr class="border-b hover:bg-slate-50">
+            <td class="p-2 font-mono font-bold text-slate-600">${escapeHtml(item.nik || '-')}</td>
+            <td class="p-2 font-bold text-blue-700">${escapeHtml(item.nama)}</td>
+            <td class="p-2">${escapeHtml(item.department || '-')}</td>
+            <td class="p-2">${escapeHtml(item.jabatan || 'Operator')}</td>
+            <td class="p-2 text-center flex justify-center gap-2">
+              <button data-action="edit-karyawan" data-nik="${escapeHtml(item.nik)}" data-nama="${escapeHtml(item.nama)}" data-dept="${escapeHtml(item.department)}" data-jabatan="${escapeHtml(item.jabatan)}" class="text-blue-600 font-bold hover:underline">Edit</button>
+              <button data-action="delete-karyawan" data-nik="${escapeHtml(item.nik)}" class="text-red-600 font-bold hover:underline">Hapus</button>
+            </td>
+          </tr>
+        `;
+      });
+    }
+
+    // Event delegation untuk tombol Edit/Hapus Karyawan (menghindari injeksi via onclick string)
+    document.getElementById('tableBodyKaryawan').addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-action]');
+      if (!btn) return;
+      if (btn.dataset.action === 'edit-karyawan') {
+        editKaryawan(btn.dataset.nik, btn.dataset.nama, btn.dataset.dept, btn.dataset.jabatan);
+      } else if (btn.dataset.action === 'delete-karyawan') {
+        deleteKaryawan(btn.dataset.nik);
+      }
+    });
+
+    function editKaryawan(nik, nama, dept, jabatan) {
+      openModalKaryawan(nik);
+      document.getElementById('m_nik').value = nik;
+      document.getElementById('m_nama').value = nama;
+      document.getElementById('m_dept').value = dept;
+      document.getElementById('m_jabatan').value = jabatan;
+    }
+
+    async function deleteKaryawan(nik) {
+      if (!confirm('Hapus karyawan ini?')) return;
+      if (navigator.onLine && getSupabase()) {
+        await getSupabase().from('master_karyawan').delete().eq('nik', nik);
+      }
+      loadKaryawanData();
+    }
+
+    let TARGET_CACHE = [];
+    const lsT = () => { try { return JSON.parse(localStorage.getItem('mes_target_local') || '[]'); } catch (e) { return []; } };
+    const setLsT = a => { try { localStorage.setItem('mes_target_local', JSON.stringify(a)); } catch (e) {} };
+
+    function openModalTarget(t) {
+      $('m_target_id').value = t ? t.id : '';
+      $('mt_dept').value = t ? t.department : 'Blowing';
+      $('mt_produk').value = t ? t.nama_produk : '';
+      $('mt_target').value = t ? t.target_shift : '';
+      $('modalTarget').classList.remove('hidden');
+    }
+    function closeModalTarget() { $('modalTarget').classList.add('hidden'); }
+
+    async function saveTargetManual() {
+      const item = { department: $('mt_dept').value, nama_produk: $('mt_produk').value.trim(), target_shift: parseFloat($('mt_target').value) };
+      if (!item.nama_produk || !(item.target_shift > 0)) return alert('Nama produk dan target (>0) wajib diisi.');
+      let id = $('m_target_id').value;
+      if (!id) {
+        const d = TARGET_CACHE.find(t => t.department === item.department && String(t.nama_produk).toLowerCase() === item.nama_produk.toLowerCase());
+        if (d) id = String(d.id);
+      }
+      const c = getSupabase();
+      let err = null;
+      if (id.startsWith('L')) setLsT(lsT().map(t => t.id === id ? { ...t, ...item } : t));
+      else if (navigator.onLine && c) {
+        const r = id ? await c.from('master_target').update(item).eq('id', id) : await c.from('master_target').insert([item]);
+        err = r.error;
+      } else err = { message: 'Offline' };
+      if (err) {
+        setLsT([...lsT(), { ...item, id: 'L' + Date.now() }]);
+        alert('⚠️ Gagal simpan ke Supabase: ' + err.message + '\n\nData disimpan sementara di perangkat ini dan dikirim otomatis saat server siap. Jalankan supabase_setup.sql agar tabel & izin (RLS) benar.');
+      }
+      closeModalTarget();
+      loadTargetData();
+    }
+
+    async function saveTargetsBulk(rows) {
+      rows = rows.filter(x => !TARGET_CACHE.some(t => t.department === x.department && t.nama_produk === x.nama_produk));
+      const c = getSupabase();
+      const r = (navigator.onLine && c) ? await c.from('master_target').insert(rows) : { error: { message: 'Offline' } };
+      if (r.error) {
+        setLsT([...lsT(), ...rows.map((x, i) => ({ ...x, id: 'L' + Date.now() + i }))]);
+        alert('⚠️ Import ke server gagal: ' + r.error.message + '. Data disimpan lokal.');
+      } else alert('✅ ' + rows.length + ' target berhasil diimpor.');
+    }
+
+    async function loadTargetData() {
+      let data = [], srvErr = null;
+      const c = getSupabase();
+      if (navigator.onLine && c) {
+        const r = await c.from('master_target').select('*').order('department');
+        if (r.error) srvErr = r.error.message; else data = r.data || [];
+      } else srvErr = 'Offline';
+      const loc = lsT();
+      if (!srvErr && loc.length) {
+        const r = await c.from('master_target').insert(loc.map(x => ({ department: x.department, nama_produk: x.nama_produk, target_shift: x.target_shift })));
+        if (!r.error) { setLsT([]); return loadTargetData(); }
+        srvErr = 'Gagal kirim data lokal: ' + r.error.message;
+      }
+      TARGET_CACHE = [...data, ...loc.map(x => ({ ...x, _local: true }))];
+      $('produkList').innerHTML = [...new Set(TARGET_CACHE.map(t => t.nama_produk))].map(n => `<option value="${escapeHtml(n)}">`).join('');
+      let html = srvErr ? `<tr><td colspan="4" class="p-2 bg-amber-50 text-amber-800 font-bold">⚠️ Server master_target: ${escapeHtml(srvErr)}. Jalankan supabase_setup.sql. Input manual tetap tersimpan lokal.</td></tr>` : '';
+      html += TARGET_CACHE.length ? TARGET_CACHE.map(t => `
+        <tr class="border-b hover:bg-slate-50">
+          <td class="p-2 font-bold">${escapeHtml(t.department)}</td>
+          <td class="p-2 text-blue-700 font-bold">${escapeHtml(t.nama_produk)}${t._local ? ' <span class="text-[10px] bg-amber-100 text-amber-700 px-1.5 rounded">lokal</span>' : ''}</td>
+          <td class="p-2 font-mono font-bold text-emerald-600">${escapeHtml(t.target_shift)} Pcs</td>
+          <td class="p-2 text-center space-x-2">
+            <button data-action="edit-target" data-id="${escapeHtml(t.id)}" class="text-blue-600 font-bold hover:underline">Edit</button>
+            <button data-action="delete-target" data-id="${escapeHtml(t.id)}" class="text-red-600 font-bold hover:underline">Hapus</button>
+          </td></tr>`).join('') : '<tr><td colspan="4" class="p-4 text-center text-slate-400">Belum ada target. Klik + Tambah Target.</td></tr>';
+      $('tableBodyTarget').innerHTML = html;
+    }
+
+    $('tableBodyTarget').addEventListener('click', e => {
+      const b = e.target.closest('button[data-action]');
+      if (!b) return;
+      if (b.dataset.action === 'edit-target') openModalTarget(TARGET_CACHE.find(x => String(x.id) === b.dataset.id));
+      if (b.dataset.action === 'delete-target') deleteTarget(b.dataset.id);
+    });
+
+    async function deleteTarget(id) {
+      if (!confirm('Hapus target ini?')) return;
+      if (id.startsWith('L')) setLsT(lsT().filter(t => t.id !== id));
+      else {
+        const c = getSupabase();
+        if (!c || !navigator.onLine) return alert('Perlu koneksi internet.');
+        const r = await c.from('master_target').delete().eq('id', id);
+        if (r.error) alert('❌ Gagal hapus: ' + r.error.message);
+      }
+      loadTargetData();
+    }
+
+    // ================= QMS =================
+    const QMS_DEFECTS = {
+      Blowing: ['Bocor/Pinhole', 'Berat tidak sesuai', 'Flashing/Burr', 'Warna belang', 'Deformasi'],
+      Vinyl: ['Gelembung udara', 'Sobek', 'Belang warna', 'Dimensi tidak sesuai', 'Noda/Kotor'],
+      Sablon: ['Sablon kabur', 'Sablon geser', 'Warna tidak sesuai', 'Sablon terkelupas', 'Noda/Kotor'],
+      Painting: ['Cat menetes', 'Orange peel', 'Debu/Kontaminasi', 'Cat tidak rata', 'Warna tidak sesuai'],
+      Assembly: ['Komponen kurang', 'Salah pasang', 'Goresan/Kotor', 'Baut/Clip longgar', 'Fungsi gagal']
+    };
+    const NCR_LIMIT = 2; // defect rate (%) di atas ini otomatis membuka NCR
+    let qChart = null;
+
+    function initQms() {
+      if (!$('q_tanggal').value) { $('q_tanggal').value = new Date().toISOString().split('T')[0]; qDeptChange(); }
+      loadQms();
+    }
+    function qDeptChange() {
+      const d = $('q_dept').value;
+      $('q_mesin').innerHTML = (MASTER_UNITS[d] || []).map(m => `<option>${escapeHtml(m)}</option>`).join('');
+      $('qDefects').innerHTML = [...QMS_DEFECTS[d], 'Lainnya'].map(n => `<div><label class="block text-[11px] font-bold text-slate-600 mb-1">${escapeHtml(n)}</label><input type="number" min="0" data-defect="${escapeHtml(n)}" oninput="qCalc()" class="q-def w-full p-2 border rounded-lg text-sm bg-red-50" placeholder="0"></div>`).join('');
+      qCalc();
+    }
+    function qCalc() {
+      const sm = parseInt($('q_sampel').value) || 0;
+      let t = 0;
+      document.querySelectorAll('.q-def').forEach(i => { t += parseInt(i.value) || 0; });
+      const r = sm ? t / sm * 100 : 0;
+      $('qCalc').innerText = `Defect ${t} / Sampel ${sm} = ${r.toFixed(2)}%` + (r > NCR_LIMIT ? ` (melebihi batas ${NCR_LIMIT}%, NCR dibuka otomatis)` : '');
+      return { sm, t, r };
+    }
+    async function saveInspeksi() {
+      const { sm, t, r } = qCalc();
+      const defects = {};
+      document.querySelectorAll('.q-def').forEach(i => { const v = parseInt(i.value) || 0; if (v > 0) defects[i.dataset.defect] = v; });
+      const wo = $('q_wo').value.trim().toUpperCase(), produk = $('q_produk').value.trim();
+      if (!wo || !produk || sm <= 0) return alert('No. WO, produk, dan jumlah sampel (>0) wajib diisi.');
+      if (t > sm) return alert('Jumlah defect tidak boleh melebihi jumlah sampel.');
+      const disp = $('q_disposisi').value, ncr = r > NCR_LIMIT || disp !== 'Pass';
+      const c = getSupabase();
+      if (!c || !navigator.onLine) return alert('QMS memerlukan koneksi internet.');
+      const row = { tanggal: $('q_tanggal').value, shift: $('q_shift').value, department: $('q_dept').value, mesin: $('q_mesin').value, work_order: wo, produk, sampel: sm, total_defect: t, defect_rate: +r.toFixed(2), defects, disposisi: disp, catatan: $('q_catatan').value.trim(), ncr_status: ncr ? 'Open' : 'None', inspector: currentUser?.email || null };
+      const res = await c.from('qms_inspeksi').insert([row]);
+      if (res.error) return alert('❌ Gagal simpan: ' + res.error.message + '\n\nJalankan supabase_setup.sql untuk membuat tabel qms_inspeksi.');
+      alert(ncr ? '✅ Inspeksi tersimpan. NCR dibuka otomatis.' : '✅ Inspeksi tersimpan.');
+      ['q_wo', 'q_produk', 'q_sampel', 'q_catatan'].forEach(i => { $(i).value = ''; });
+      qDeptChange();
+      loadQms();
+    }
+    async function loadQms() {
+      const tb = $('qTableBody'), c = getSupabase();
+      if (!c || !navigator.onLine) { tb.innerHTML = '<tr><td colspan="7" class="p-4 text-center text-slate-400">Perlu koneksi internet.</td></tr>'; return; }
+      const r = await c.from('qms_inspeksi').select('*').order('created_at', { ascending: false }).limit(300);
+      if (r.error) { tb.innerHTML = `<tr><td colspan="7" class="p-3 bg-amber-50 text-amber-800 font-bold">⚠️ ${escapeHtml(r.error.message)}. Jalankan supabase_setup.sql untuk membuat tabel qms_inspeksi.</td></tr>`; return; }
+      const d = r.data || [];
+      const S = d.reduce((a, x) => a + (x.sampel || 0), 0), D = d.reduce((a, x) => a + (x.total_defect || 0), 0);
+      const rate = S ? D / S * 100 : 0;
+      $('qKSampel').innerText = S.toLocaleString();
+      $('qKRate').innerText = rate.toFixed(2) + '%';
+      $('qKFpy').innerText = (S ? 100 - rate : 0).toFixed(2) + '%';
+      $('qKNcr').innerText = d.filter(x => x.ncr_status === 'Open').length;
+      const canClose = ['supervisor', 'admin'].includes(currentUser?.role);
+      tb.innerHTML = d.slice(0, 50).map(x => `
+        <tr class="border-b hover:bg-slate-50">
+          <td class="p-2">${escapeHtml(x.tanggal)} (S${escapeHtml(x.shift)})</td>
+          <td class="p-2">${escapeHtml(x.department)} / ${escapeHtml(x.mesin)}</td>
+          <td class="p-2">${escapeHtml(x.work_order)}<br><span class="text-slate-500">${escapeHtml(x.produk)}</span></td>
+          <td class="p-2 font-mono">${escapeHtml(x.sampel)}</td>
+          <td class="p-2 font-mono">${escapeHtml(x.total_defect)} (${escapeHtml(x.defect_rate)}%)</td>
+          <td class="p-2 font-bold">${escapeHtml(x.disposisi)}</td>
+          <td class="p-2">${x.ncr_status === 'Open' ? `<span class="text-red-600 font-bold">Open</span> ${canClose ? `<button data-ncr="${escapeHtml(x.id)}" class="ml-1 text-blue-600 font-bold hover:underline">Tutup</button>` : ''}` : x.ncr_status === 'Closed' ? '<span class="text-emerald-600 font-bold">Closed</span>' : '-'}</td>
+        </tr>`).join('') || '<tr><td colspan="7" class="p-4 text-center text-slate-400">Belum ada inspeksi.</td></tr>';
+      const agg = {};
+      d.forEach(x => Object.entries(x.defects || {}).forEach(([k, v]) => { agg[k] = (agg[k] || 0) + v; }));
+      const labels = Object.keys(agg).sort((a, b) => agg[b] - agg[a]);
+      const vals = labels.map(k => agg[k]), tot = vals.reduce((a, b) => a + b, 0) || 1;
+      let cum = 0;
+      const cumPct = vals.map(v => +((cum += v) / tot * 100).toFixed(1));
+      if (qChart) qChart.destroy();
+      qChart = new Chart($('chartQmsPareto').getContext('2d'), {
+        data: {
+          labels: labels.length ? labels : ['Belum ada data'],
+          datasets: [
+            { type: 'bar', label: 'Jumlah defect', data: labels.length ? vals : [0], backgroundColor: '#ef4444', yAxisID: 'y' },
+            { type: 'line', label: 'Kumulatif %', data: labels.length ? cumPct : [0], borderColor: '#6366f1', yAxisID: 'y2' }
+          ]
+        },
+        options: { responsive: true, maintainAspectRatio: false, scales: { y2: { position: 'right', min: 0, max: 100, grid: { drawOnChartArea: false } } } }
+      });
+    }
+    $('qTableBody').addEventListener('click', async e => {
+      const b = e.target.closest('button[data-ncr]');
+      if (!b) return;
+      const act = prompt('Root cause & tindakan korektif untuk menutup NCR:');
+      if (!act || !act.trim()) return;
+      const r = await getSupabase().from('qms_inspeksi').update({ ncr_status: 'Closed', tindakan_korektif: act.trim(), closed_by: currentUser?.email || null, closed_at: new Date().toISOString() }).eq('id', b.dataset.ncr);
+      if (r.error) alert('❌ ' + r.error.message); else loadQms();
+    });
+
+    function openModalMesin() { document.getElementById('modalMesin').classList.remove('hidden'); }
+    function closeModalMesin() { document.getElementById('modalMesin').classList.add('hidden'); }
+
+    // Menandai apakah tabel 'master_mesin' tersedia di Supabase.
+    // Kalau belum dibuat, aplikasi tetap jalan pakai data lokal (di memori)
+    // supaya tidak error total, tapi akan menampilkan peringatan ke user.
+    let masterMesinTableAvailable = true;
+
+    // Ambil daftar unit mesin dari Supabase (tabel: master_mesin, kolom: department, nama_mesin)
+    // Kalau tabel belum ada / gagal, tetap pakai MASTER_UNITS default (in-memory) sebagai fallback.
+    async function loadMesinData() {
+      if (!(navigator.onLine && getSupabase())) {
+        renderMasterView();
+        return;
+      }
+      const res = await getSupabase().from('master_mesin').select('*').order('nama_mesin', { ascending: true });
+      if (res.error) {
+        masterMesinTableAvailable = false;
+        renderMasterView();
+        return;
+      }
+      masterMesinTableAvailable = true;
+      if (res.data && res.data.length > 0) {
+        const grouped = {};
+        res.data.forEach(row => {
+          if (!grouped[row.department]) grouped[row.department] = [];
+          if (!grouped[row.department].includes(row.nama_mesin)) grouped[row.department].push(row.nama_mesin);
+        });
+        MASTER_UNITS = grouped;
+      }
+      updateMesinOptions();
+      renderMasterView();
+    }
+
+    async function saveMesinManual() {
+      const dept = document.getElementById('mm_dept').value;
+      const nama = document.getElementById('mm_nama').value.trim();
+      if (!nama) return alert('Nama unit mesin wajib diisi!');
+
+      if (!MASTER_UNITS[dept]) MASTER_UNITS[dept] = [];
+      if (!MASTER_UNITS[dept].includes(nama)) {
+        MASTER_UNITS[dept].push(nama);
+      }
+
+      if (navigator.onLine && getSupabase()) {
+        const { error } = await getSupabase().from('master_mesin').insert([{ department: dept, nama_mesin: nama }]);
+        if (error) {
+          masterMesinTableAvailable = false;
+          alert('⚠️ Tersimpan sementara di browser saja. Data mesin TIDAK permanen karena tabel "master_mesin" belum tersedia/gagal diakses di Supabase. Hubungi admin untuk membuat tabel tersebut.');
+        }
+      } else {
+        alert('⚠️ Sedang offline: unit mesin ini hanya tersimpan sementara di perangkat ini dan belum tersinkron ke server.');
+      }
+
+      closeModalMesin();
+      updateMesinOptions();
+      renderMasterView();
+    }
+
+    async function deleteMesinUnit(dept, nama) {
+      if (!confirm(`Hapus ${nama} dari ${dept}?`)) return;
+      MASTER_UNITS[dept] = MASTER_UNITS[dept].filter(m => m !== nama);
+
+      if (navigator.onLine && getSupabase()) {
+        await getSupabase().from('master_mesin').delete().eq('department', dept).eq('nama_mesin', nama);
+      }
+
+      updateMesinOptions();
+      renderMasterView();
+    }
+
+    function renderMasterView() {
+      const container = document.getElementById('masterUnitDetails');
+      container.innerHTML = '';
+
+      if (!masterMesinTableAvailable) {
+        container.innerHTML += `
+          <div class="p-3 bg-amber-50 border border-amber-300 text-amber-800 rounded-lg text-xs font-bold">
+            ⚠️ Tabel "master_mesin" belum tersedia di database. Perubahan pada bagian ini hanya tersimpan sementara di browser dan akan hilang saat refresh. Minta admin membuat tabel master_mesin (department, nama_mesin) di Supabase.
+          </div>
+        `;
+      }
+
+      Object.keys(MASTER_UNITS).forEach(dept => {
+        let cards = MASTER_UNITS[dept].map(u => `
+          <span class="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 rounded-lg text-xs font-mono border shadow-sm">
+            ${escapeHtml(u)}
+            <button data-action="delete-mesin" data-dept="${escapeHtml(dept)}" data-nama="${escapeHtml(u)}" class="text-red-500 font-bold hover:text-red-700 ml-1">✕</button>
+          </span>
+        `).join(' ');
+
+        container.innerHTML += `
+          <div class="p-3.5 border rounded-xl bg-slate-50">
+            <div class="flex justify-between items-center mb-2 border-b pb-1">
+              <h3 class="font-bold text-xs text-slate-700">${escapeHtml(dept)} (${MASTER_UNITS[dept].length} Unit Aktif)</h3>
+            </div>
+            <div class="flex flex-wrap gap-1.5">${cards}</div>
+          </div>
+        `;
+      });
+    }
+
+    document.getElementById('masterUnitDetails').addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-action="delete-mesin"]');
+      if (btn) deleteMesinUnit(btn.dataset.dept, btn.dataset.nama);
+    });
+
+    // ===== OEE: satu rumus untuk form, dashboard, approval, export =====
+    // Availability = (waktu terjadwal - downtime) / waktu terjadwal
+    // Performance  = (OK+NG) / (target x waktu jalan / waktu terjadwal)  -> boleh > 100%
+    // Quality      = OK / (OK+NG);  OEE = A x P x Q  -> boleh > 100%
+    function slotMin(g) {
+      if (!g.jam_mulai || !g.jam_selesai) return 0;
+      const m = t => { const [h, mi] = String(t).split(':').map(Number); return h * 60 + mi; };
+      return (m(g.jam_selesai) - m(g.jam_mulai) + 1440) % 1440;
+    }
+    function calcOee(garapan, fallback) {
+      const list = Array.isArray(garapan) ? garapan : [];
+      if (!list.length) return { avail: 0, perf: 0, qual: 0, oee: fallback || 0 };
+      let plan = 0, dt = 0, exp = 0, ok = 0, ng = 0;
+      list.forEach(g => {
+        const sp = slotMin(g) || 480 / list.length, d = Math.min(g.downtime_menit || 0, sp);
+        plan += sp; dt += d; exp += (g.target || 0) * (sp - d) / sp;
+        ok += g.hasil_ok || 0; ng += g.hasil_ng || 0;
+      });
+      const avail = Math.max(0, (plan - dt) / plan * 100), perf = exp > 0 ? (ok + ng) / exp * 100 : 0, qual = ok + ng > 0 ? ok / (ok + ng) * 100 : 0;
+      return { avail, perf, qual, oee: avail * perf * qual / 10000 };
+    }
+    const oeeOf = row => calcOee(row.garapan, row.oee_score).oee;
+    function currentGarapan() {
+      return [...document.querySelectorAll('.garapan-card')].map(c => {
+        const v = k => c.querySelector('.' + k).value;
+        return { jam_mulai: v('g-mulai'), jam_selesai: v('g-selesai'), target: parseFloat(v('g-target')) || 0, hasil_ok: parseFloat(v('g-ok')) || 0, hasil_ng: parseFloat(v('g-ng')) || 0, downtime_menit: parseFloat(v('g-downtime')) || 0 };
+      });
+    }
+
+    // ===== Edit draft / revisi laporan yang ditolak =====
+    let editingReportId = null, editingKey = '', MY_REPORTS = [];
+    const sesiCount = x => (x.garapan || []).filter(g => g.tidak_produksi || (g.work_order && g.produk && ((g.hasil_ok || 0) + (g.hasil_ng || 0)) > 0)).length;
+    function markSaved(lbl) {
+      const t = lbl || 'Tersimpan ' + new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+      document.querySelectorAll('.garapan-card').forEach(c => {
+        const has = c.querySelector('.g-wo').value || c.querySelector('.g-produk').value || c.dataset.idle === '1';
+        c.querySelector('.sesi-saved').innerText = has ? '✓ ' + t : '';
+      });
+    }
+    async function saveSesi(btn) {
+      btn.innerText = 'Menyimpan...';
+      await submitForm('Draft');
+      btn.innerText = '💾 Simpan sesi ini ke draft';
+      const m = $('statusMessage');
+      if (/red|amber/.test(m.className)) alert(m.innerText);
+    }
+    const isEntry = g => g.tidak_produksi || g.work_order || g.produk || (g.hasil_ok || 0) + (g.hasil_ng || 0) > 0;
+    const unionOps = list => { const m = {}; list.forEach(x => (x.operators || []).forEach(o => { m[o.nama] = o; })); return Object.values(m); };
+    async function loadMyReports() {
+      const c = getSupabase();
+      if (!c || !navigator.onLine || !currentUser) return;
+      const r = await c.from('laporan_shift').select('*').eq('created_by', currentUser.email).in('status', ['Draft', 'Rejected']).order('tanggal', { ascending: false }).order('mesin').limit(60);
+      MY_REPORTS = (r.data || []).filter(x => (x.garapan || []).some(isEntry));
+      const E = [];
+      MY_REPORTS.forEach(x => (x.garapan || []).filter(isEntry).sort((a, b) => a.sesi - b.sesi).forEach(g => E.push({ x, g })));
+      const T = k => E.reduce((t, e) => t + (e.g[k] || 0), 0);
+      $('myReports').classList.toggle('hidden', !E.length);
+      $('myReports').innerHTML = `<div class="flex flex-wrap justify-between items-center gap-2 mb-2"><p class="text-sm font-bold text-slate-700">📋 Antrean Data (${E.length} input, ${MY_REPORTS.length} mesin) <span class="text-[11px] font-normal text-slate-500">belum masuk approval</span></p><button type="button" data-sendall="1" class="text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg">☁️ Kirim Semua ke Approval</button></div>
+      <table class="w-full text-left text-xs min-w-[760px]"><thead><tr class="bg-slate-100 text-slate-600 font-bold"><th class="p-2">Tgl/Shift</th><th class="p-2">Mesin</th><th class="p-2">Sesi</th><th class="p-2">Operator</th><th class="p-2">WO / Produk</th><th class="p-2">Target</th><th class="p-2">OK</th><th class="p-2">NG</th><th class="p-2">%</th><th class="p-2">Aksi</th></tr></thead><tbody>` +
+      E.map(({ x, g }) => {
+        const ok = g.hasil_ok || 0, ng = g.hasil_ng || 0, tg = g.target || 0, bad = ok + ng > 0 && ng / (ok + ng) * 100 > NCR_LIMIT, key = escapeHtml(x.id + '|' + g.sesi);
+        const ops = (g.operators && g.operators.length ? g.operators : x.operators || []).map(o => o.nama).join(', ') || '-';
+        return `<tr class="border-b hover:bg-slate-50 align-top"><td class="p-2 whitespace-nowrap"><b>${escapeHtml(x.tanggal)}</b><div class="text-slate-400">S${escapeHtml(x.shift)}</div></td><td class="p-2 font-bold">${escapeHtml(x.mesin)}${x.reject_reason ? `<div class="text-red-600 font-normal">Ditolak: ${escapeHtml(x.reject_reason)}</div>` : ''}</td><td class="p-2 whitespace-nowrap">${escapeHtml(g.sesi)}<div class="text-slate-400">${escapeHtml(g.jam_mulai)}-${escapeHtml(g.jam_selesai)}</div></td><td class="p-2">${escapeHtml(ops)}</td><td class="p-2">${g.tidak_produksi ? '<i>Tidak produksi</i>' : escapeHtml(g.work_order) + '<div class="text-slate-500">' + escapeHtml(g.produk) + '</div>'}</td><td class="p-2 font-mono">${tg.toLocaleString()}</td><td class="p-2 font-mono">${ok.toLocaleString()}</td><td class="p-2 font-mono ${bad ? 'text-red-600 font-bold' : ''}">${ng.toLocaleString()}</td><td class="p-2 font-bold ${tg && ok >= tg ? 'text-emerald-600' : 'text-amber-600'}">${tg ? (ok / tg * 100).toFixed(1) + '%' : '-'}</td><td class="p-2 whitespace-nowrap"><button type="button" data-edit="${key}" class="px-2 py-1 bg-amber-400 rounded" aria-label="Edit">✏️</button> <button type="button" data-del="${key}" class="px-2 py-1 bg-red-500 text-white rounded" aria-label="Hapus">🗑</button></td></tr>`;
+      }).join('') +
+      `<tr class="bg-slate-50 font-bold"><td colspan="5" class="p-2 text-right">Total antrean</td><td class="p-2 font-mono">${T('target').toLocaleString()}</td><td class="p-2 font-mono">${T('hasil_ok').toLocaleString()}</td><td class="p-2 font-mono">${T('hasil_ng').toLocaleString()}</td><td colspan="2"></td></tr></tbody></table>`;
+    }
+    $('myReports').addEventListener('click', e => {
+      const b = e.target.closest('button');
+      if (!b) return;
+      if (b.dataset.edit) editEntry(b.dataset.edit);
+      if (b.dataset.del) deleteEntry(b.dataset.del);
+      if (b.dataset.sendall) sendDrafts();
+    });
+
+    async function addEntry() {
+      const c = getSupabase(), msg = $('statusMessage');
+      if (!c || !navigator.onLine) return alert('Perlu koneksi internet untuk menambah ke antrean.');
+      const tanggal = $('tanggal').value, shift = $('shift').value, koordinator = $('koordinator').value.trim(), mesin = $('mesin').value;
+      if (!tanggal || !koordinator || !mesin) return alert('Tanggal, Koordinator, dan Mesin/Line wajib diisi.');
+      const ops = [];
+      document.querySelectorAll('.op-row').forEach(row => { const nama = row.querySelector('.op-nama').value.trim(); if (nama) ops.push({ nama, status: row.querySelector('.op-status').value }); });
+      if (!ops.length) return alert('Minimal 1 operator wajib diisi.');
+      const card = document.querySelector('.garapan-card'), v = k => card.querySelector('.' + k).value, num = k => parseFloat(v(k)) || 0, idle = card.dataset.idle === '1';
+      const g = { sesi: +card.dataset.sesi, tidak_produksi: idle, operators: ops, work_order: v('g-wo').trim().toUpperCase(), lot_number: v('g-lot').trim().toUpperCase(), produk: v('g-produk').trim(), jam_mulai: v('g-mulai'), jam_selesai: v('g-selesai'), target: num('g-target'), hasil_ok: num('g-ok'), hasil_ng: num('g-ng'), downtime_menit: num('g-downtime'), alasan_downtime: v('g-alasan') };
+      if (['target', 'hasil_ok', 'hasil_ng', 'downtime_menit'].some(k => g[k] < 0)) return alert('Target, OK, NG, dan downtime tidak boleh negatif.');
+      if (!idle && (!g.work_order || !g.produk || g.hasil_ok + g.hasil_ng <= 0)) return alert('No. WO, Produk, dan hasil OK/NG wajib diisi (atau centang Tidak produksi).');
+      if (idle && v('g-alasan') === DOWNTIME_CATEGORIES[0]) return alert('Pilih alasan downtime untuk sesi yang tidak produksi.');
+      const ex = await c.from('laporan_shift').select('*').eq('tanggal', tanggal).eq('shift', shift).eq('mesin', mesin).order('created_at', { ascending: false }).limit(1);
+      if (ex.error) return alert('❌ ' + ex.error.message);
+      const rep = ex.data && ex.data[0];
+      let res;
+      if (rep) {
+        if (rep.status === 'Submitted' || rep.status === 'Approved') return alert(`Laporan ${mesin} Shift ${shift} tanggal ${tanggal} sudah ${rep.status}, tidak bisa ditambah.`);
+        if (rep.created_by !== currentUser.email) return alert('Antrean mesin ini dimiliki ' + rep.created_by + '.');
+        const list = rep.garapan || [];
+        if (list.some(i => i.sesi === g.sesi && isEntry(i)) && !confirm(`Input ke-${g.sesi} mesin ${mesin} sudah ada di antrean. Timpa dengan data ini?`)) return;
+        const garapan = [...list.filter(i => i.sesi !== g.sesi), g].sort((a, b) => a.sesi - b.sesi);
+        res = await c.from('laporan_shift').update({ garapan, koordinator, operators: unionOps(garapan), department: $('department').value, assembly_mode: $('assembly_mode').value, status: 'Draft' }).eq('id', rep.id);
+      } else {
+        res = await c.from('laporan_shift').insert([{ tanggal, shift, koordinator, department: $('department').value, mesin, assembly_mode: $('assembly_mode').value, operators: ops, garapan: [g], oee_score: 0, status: 'Draft', created_by: currentUser.email, created_at: new Date().toISOString() }]);
+      }
+      if (res.error) return alert('❌ ' + res.error.message);
+      buildSesi(String(g.sesi % 4 + 1));
+      const nc = document.querySelector('.garapan-card');
+      nc.querySelector('.g-wo').value = g.work_order; nc.querySelector('.g-lot').value = g.lot_number; nc.querySelector('.g-produk').value = g.produk;
+      autoTarget(nc.querySelector('.g-produk'));
+      msg.classList.remove('hidden');
+      msg.className = 'text-center font-bold text-sm p-2 rounded-lg bg-emerald-100 text-emerald-800';
+      msg.innerText = `✓ Input ke-${g.sesi} mesin ${mesin} masuk antrean. Form siap untuk input ke-${g.sesi % 4 + 1}.`;
+      await loadMyReports();
+      $('myReports').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    function editEntry(key) {
+      const [rid, sesi] = key.split('|'), r = MY_REPORTS.find(x => String(x.id) === rid), g = r && (r.garapan || []).find(i => String(i.sesi) === sesi);
+      if (!g) return;
+      $('tanggal').value = r.tanggal; $('shift').value = String(r.shift); $('koordinator').value = r.koordinator || ''; $('department').value = r.department;
+      updateMesinOptions(); checkAssemblyMode(); updateOperatorDropdown();
+      $('mesin').value = r.mesin; $('assembly_mode').value = r.assembly_mode || 'Individu'; toggleOperatorMode();
+      document.querySelectorAll('.op-row').forEach((row, i) => { if (i) row.remove(); });
+      (g.operators && g.operators.length ? g.operators : r.operators || []).forEach((o, i) => {
+        if (i > 0) addOperatorInput();
+        const row = document.querySelectorAll('.op-row')[i];
+        row.querySelector('.op-nama').value = o.nama; row.querySelector('.op-status').value = o.status;
+      });
+      buildSesi(String(g.sesi));
+      const c = document.querySelector('.garapan-card'), set = (k, val) => { c.querySelector('.' + k).value = val ?? ''; };
+      set('g-wo', g.work_order); set('g-lot', g.lot_number); set('g-produk', g.produk); set('g-target', g.target);
+      set('g-ok', g.hasil_ok); set('g-ng', g.hasil_ng); set('g-downtime', g.downtime_menit); set('g-alasan', g.alasan_downtime);
+      if (g.tidak_produksi) { c.dataset.idle = '1'; c.querySelector('input[type=checkbox]').checked = true; }
+      calculateShiftTotals();
+      window.scrollTo(0, 0);
+    }
+
+    async function deleteEntry(key) {
+      const [rid, sesi] = key.split('|'), c = getSupabase(), r = MY_REPORTS.find(x => String(x.id) === rid);
+      if (!r || !c || !navigator.onLine) return alert('Perlu koneksi internet.');
+      if (!confirm(`Hapus input ke-${sesi} mesin ${r.mesin} dari antrean?`)) return;
+      const garapan = (r.garapan || []).filter(i => String(i.sesi) !== sesi);
+      const res = await c.from('laporan_shift').update({ garapan, status: 'Draft' }).eq('id', rid).select('id');
+      if (res.error) return alert('❌ ' + res.error.message);
+      if (!garapan.some(isEntry)) await c.from('laporan_shift').delete().eq('id', rid).eq('status', 'Draft');
+      loadMyReports();
+    }
+
+    async function sendDrafts() {
+      const c = getSupabase();
+      if (!c || !navigator.onLine) return alert('Perlu koneksi internet.');
+      if (!MY_REPORTS.length) return alert('Antrean kosong.');
+      const ent = MY_REPORTS.flatMap(x => x.garapan.filter(isEntry)), T = k => ent.reduce((t, g) => t + (g[k] || 0), 0);
+      const partial = MY_REPORTS.filter(x => x.garapan.filter(isEntry).length < 4).length;
+      if (!confirm(`Kirim ${MY_REPORTS.length} mesin (${ent.length} input) ke approval?\nTotal OK ${T('hasil_ok').toLocaleString()}, NG ${T('hasil_ng').toLocaleString()}, Target ${T('target').toLocaleString()}.${partial ? `\n${partial} mesin baru terisi kurang dari 4 sesi (OEE dihitung dari sesi yang ada).` : ''}\nSetelah dikirim tidak bisa diubah kecuali ditolak approver.`)) return;
+      const res = await Promise.all(MY_REPORTS.map(x => c.from('laporan_shift').update({ status: 'Submitted', reject_reason: null, garapan: x.garapan.filter(isEntry) }).eq('id', x.id)));
+      const bad = res.find(r => r.error);
+      if (bad) alert('❌ Sebagian gagal: ' + bad.error.message);
+      loadMyReports();
+    }
+    // Buka otomatis draft yang sudah ada saat tanggal / shift / mesin dipilih
+    async function loadExistingDraft() {
+      const c = getSupabase(), key = [$('tanggal').value, $('shift').value, $('mesin').value].join('|');
+      if (editingReportId && key === editingKey) return;
+      if (editingReportId) { editingReportId = null; $('editBanner').classList.add('hidden'); }
+      if (!c || !navigator.onLine || !currentUser || !$('tanggal').value || !$('mesin').value) return;
+      const r = await c.from('laporan_shift').select('*').eq('tanggal', $('tanggal').value).eq('shift', $('shift').value).eq('mesin', $('mesin').value).order('created_at', { ascending: false }).limit(1);
+      const d = r.data && r.data[0];
+      if (!d) return;
+      if (d.status === 'Submitted' || d.status === 'Approved') {
+        $('editBanner').innerHTML = `ℹ️ Laporan ${escapeHtml(d.mesin)} Shift ${escapeHtml(d.shift)} tanggal ${escapeHtml(d.tanggal)} sudah berstatus ${escapeHtml(d.status)} dan tidak bisa dibuat ulang.`;
+        $('editBanner').classList.remove('hidden');
+        return;
+      }
+      if (d.created_by !== currentUser.email) return alert('Draft mesin ini dibuat oleh ' + d.created_by + '. Minta yang bersangkutan melanjutkan.');
+      MY_REPORTS = [d, ...MY_REPORTS.filter(x => x.id !== d.id)];
+      editReport(d.id, true);
+    }
+    
+    function cancelEdit() { editingReportId = null; $('editBanner').classList.add('hidden'); buildSesi(); }
+    function editReport(id, quiet) {
+      const r = MY_REPORTS.find(x => String(x.id) === String(id));
+      if (!r) return;
+      editingReportId = r.id; editingKey = [r.tanggal, String(r.shift), r.mesin].join('|');
+      $('tanggal').value = r.tanggal; $('shift').value = String(r.shift); $('koordinator').value = r.koordinator || ''; $('department').value = r.department;
+      updateMesinOptions(); checkAssemblyMode(); updateOperatorDropdown();
+      $('mesin').value = r.mesin; $('assembly_mode').value = r.assembly_mode || 'Individu'; toggleOperatorMode();
+      document.querySelectorAll('.op-row').forEach((row, i) => { if (i) row.remove(); });
+      (r.operators || []).forEach((o, i) => {
+        if (i > 0) addOperatorInput();
+        const row = document.querySelectorAll('.op-row')[i];
+        row.querySelector('.op-nama').value = o.nama; row.querySelector('.op-status').value = o.status;
+      });
+      buildSesi();
+      const cards = document.querySelectorAll('.garapan-card');
+      (r.garapan || []).forEach((g, i) => {
+        const c = cards[g.sesi ? g.sesi - 1 : i];
+        if (!c) return;
+        const set = (k, v) => { c.querySelector('.' + k).value = v ?? ''; };
+        set('g-wo', g.work_order); set('g-lot', g.lot_number); set('g-produk', g.produk); set('g-target', g.target);
+        set('g-ok', g.hasil_ok); set('g-ng', g.hasil_ng); set('g-downtime', g.downtime_menit); set('g-alasan', g.alasan_downtime);
+        if (g.tidak_produksi) { c.dataset.idle = '1'; c.querySelector('input[type=checkbox]').checked = true; }
+      });
+      calculateShiftTotals();
+      $('editBanner').innerHTML = `✏️ Mengedit laporan ${escapeHtml(r.tanggal)} Shift ${escapeHtml(r.shift)} · ${escapeHtml(r.mesin)} (${escapeHtml(r.status)})${r.reject_reason ? `<br><span class="text-red-600">Alasan reject: ${escapeHtml(r.reject_reason)}</span>` : ''} <button type="button" onclick="cancelEdit()" class="ml-2 underline">Batal edit</button>`;
+      $('editBanner').classList.remove('hidden');
+      markSaved('Dari draft');
+      if (!quiet) window.scrollTo(0, 0);
+    }
+
+    // ===== Jadwal produksi (plan vs actual) =====
+    const today = () => new Date().toISOString().split('T')[0];
+    const canPlan = () => ['supervisor', 'admin'].includes(currentUser?.role);
+    function planDept() { $('p_mesin').innerHTML = (MASTER_UNITS[$('p_dept').value] || []).map(m => `<option>${escapeHtml(m)}</option>`).join(''); }
+    function planAutoQty() {
+      const t = TARGET_CACHE.find(x => x.department === $('p_dept').value && String(x.nama_produk).toLowerCase() === $('p_produk').value.trim().toLowerCase());
+      if (t) $('p_qty').value = t.target_shift;
+    }
+    function initPlan() {
+      $('planForm').classList.toggle('hidden', !canPlan());
+      if (!$('p_tanggal').value) { ['p_tanggal', 'pf_from', 'pf_to'].forEach(i => { $(i).value = today(); }); planDept(); }
+      loadPlan();
+    }
+    async function savePlan() {
+      const c = getSupabase();
+      if (!c || !navigator.onLine) return alert('Perlu koneksi internet.');
+      const row = { tanggal: $('p_tanggal').value, shift: $('p_shift').value, department: $('p_dept').value, mesin: $('p_mesin').value, work_order: $('p_wo').value.trim().toUpperCase(), produk: $('p_produk').value.trim(), target_plan: parseFloat($('p_qty').value) || 0, created_by: currentUser?.email || null };
+      if (!row.tanggal || !row.mesin || !row.work_order || !row.produk || row.target_plan <= 0) return alert('Tanggal, mesin, WO, produk, dan qty plan (>0) wajib diisi.');
+      const ex = await c.from('jadwal_produksi').select('id').eq('tanggal', row.tanggal).eq('shift', row.shift).eq('mesin', row.mesin).eq('work_order', row.work_order).limit(1);
+      if (ex.data && ex.data.length) return alert('Jadwal untuk WO, mesin, dan shift ini sudah ada.');
+      const r = await c.from('jadwal_produksi').insert([row]);
+      if (r.error) return alert('❌ ' + (r.error.code === '23505' ? 'Jadwal duplikat.' : r.error.message + '\nJalankan supabase_setup_v2.sql.'));
+      ['p_wo', 'p_produk', 'p_qty'].forEach(i => { $(i).value = ''; });
+      loadPlan();
+    }
+    async function loadPlan() {
+      const c = getSupabase(), tb = $('planBody');
+      if (!c || !navigator.onLine) { tb.innerHTML = '<tr><td colspan="8" class="p-4 text-center text-slate-400">Perlu koneksi internet.</td></tr>'; return; }
+      const from = $('pf_from').value || today(), to = $('pf_to').value || today(), dept = $('pf_dept').value;
+      let q1 = c.from('jadwal_produksi').select('*').gte('tanggal', from).lte('tanggal', to).order('tanggal').order('shift').order('mesin');
+      if (dept) q1 = q1.eq('department', dept);
+      const q2 = c.from('laporan_shift').select('tanggal,shift,mesin,garapan').gte('tanggal', from).lte('tanggal', to).in('status', ['Submitted', 'Approved']).limit(2000);
+      const [p, a] = await Promise.all([q1, q2]);
+      if (p.error) { tb.innerHTML = `<tr><td colspan="8" class="p-3 bg-amber-50 text-amber-800 font-bold">⚠️ ${escapeHtml(p.error.message)}. Jalankan supabase_setup_v2.sql.</td></tr>`; return; }
+      const act = {}, rep = new Set();
+      (a.data || []).forEach(r => {
+        rep.add(`${r.tanggal}|${r.shift}|${r.mesin}`);
+        (r.garapan || []).forEach(g => { const k = `${r.tanggal}|${r.shift}|${r.mesin}|${String(g.work_order || '').toUpperCase()}`; act[k] = (act[k] || 0) + (g.hasil_ok || 0); });
+      });
+      let tp = 0, ta = 0, none = 0;
+      const del = canPlan();
+      tb.innerHTML = (p.data || []).map(x => {
+        const ok = act[`${x.tanggal}|${x.shift}|${x.mesin}|${x.work_order}`] || 0, has = rep.has(`${x.tanggal}|${x.shift}|${x.mesin}`);
+        const ach = x.target_plan ? ok / x.target_plan * 100 : 0;
+        tp += x.target_plan; ta += ok; if (!has) none++;
+        const st = !has ? ['Belum ada laporan', 'bg-slate-200 text-slate-600'] : ach >= 100 ? ['Tercapai', 'bg-emerald-100 text-emerald-700'] : ach >= 80 ? ['Mendekati plan', 'bg-amber-100 text-amber-700'] : ['Di bawah plan', 'bg-red-100 text-red-700'];
+        return `<tr class="border-b hover:bg-slate-50"><td class="p-2">${escapeHtml(x.tanggal)} (S${escapeHtml(x.shift)})</td><td class="p-2">${escapeHtml(x.mesin)}</td><td class="p-2">${escapeHtml(x.work_order)}<br><span class="text-slate-500">${escapeHtml(x.produk)}</span></td><td class="p-2 font-mono">${escapeHtml(x.target_plan)}</td><td class="p-2 font-mono">${ok}</td><td class="p-2 font-bold">${ach.toFixed(1)}%</td><td class="p-2"><span class="px-2 py-0.5 rounded text-[10px] font-bold ${st[1]}">${st[0]}</span></td><td class="p-2">${del ? `<button data-plan-del="${escapeHtml(x.id)}" class="text-red-600 font-bold hover:underline">Hapus</button>` : ''}</td></tr>`;
+      }).join('') || '<tr><td colspan="8" class="p-4 text-center text-slate-400">Belum ada jadwal pada rentang ini.</td></tr>';
+      $('pKPlan').innerText = tp.toLocaleString(); $('pKAct').innerText = ta.toLocaleString();
+      $('pKAch').innerText = (tp ? ta / tp * 100 : 0).toFixed(1) + '%'; $('pKNo').innerText = none;
+    }
+    $('planBody').addEventListener('click', async e => {
+      const b = e.target.closest('button[data-plan-del]');
+      if (!b || !confirm('Hapus jadwal ini?')) return;
+      const r = await getSupabase().from('jadwal_produksi').delete().eq('id', b.dataset.planDel);
+      if (r.error) alert('❌ ' + r.error.message); else loadPlan();
+    });
+    async function fillFromPlan() {
+      const c = getSupabase();
+      if (!c || !navigator.onLine) return alert('Perlu koneksi internet.');
+      const r = await c.from('jadwal_produksi').select('*').eq('tanggal', $('tanggal').value).eq('shift', $('shift').value).eq('mesin', $('mesin').value).order('id');
+      const pl = r.data || [];
+      if (r.error || !pl.length) return alert(r.error ? r.error.message : 'Tidak ada jadwal untuk tanggal, shift, dan mesin ini.');
+      const idx = [0, 1, 2, 3].map(i => Math.floor(i * pl.length / 4));
+      document.querySelectorAll('.garapan-card').forEach(card => { const i = +card.dataset.sesi - 1;
+        const p = pl[idx[i]], n = idx.filter(x => x === idx[i]).length, tg = card.querySelector('.g-target');
+        card.querySelector('.g-wo').value = p.work_order; card.querySelector('.g-produk').value = p.produk;
+        tg.value = Math.round(p.target_plan / n); tg.dataset.auto = '1';
+      });
+      calculateShiftTotals();
+    }
+
+    function initAppAfterLogin() {
+      document.getElementById('tanggal').value = new Date().toISOString().split('T')[0];
+      loadMesinData();
+      buildSesi();
+      loadMyReports();
+      loadTargetData();
+      SyncManager.updateBadge();
+    }
+  </script>
+  </div><!-- /#appRoot -->
+
+  <!-- ============================================== -->
+  <!-- SCRIPT AUTENTIKASI & ROLE-BASED ACCESS CONTROL -->
+  <!-- ============================================== -->
+  <script>
+    let currentUser = null; // { id, email, role }
+
+    // Menu/aksi yang hanya boleh diakses role tertentu.
+    // 'operator' hanya boleh isi & kirim laporan shift (Tab 1).
+    // 'supervisor' & 'admin' boleh akses Approval + Master Data.
+    const RESTRICTED_TABS = {
+      'tab-approval': ['supervisor', 'admin'],
+      'tab-master': ['admin']
+    };
+
+    function applyRoleRestrictions() {
+      const role = currentUser?.role || 'operator';
+      Object.keys(RESTRICTED_TABS).forEach(tabId => {
+        const btn = document.getElementById('btn-' + tabId);
+        if (!btn) return;
+        const allowed = RESTRICTED_TABS[tabId].includes(role);
+        btn.style.display = allowed ? '' : 'none';
+      });
+    }
+
+    // Ambil role user dari tabel 'profiles'. Kalau tabel belum ada atau
+    // user belum terdaftar di sana, default ke role paling terbatas ('operator')
+    // demi keamanan (fail-safe, bukan fail-open).
+    async function fetchUserRole(userId, email) {
+      try {
+        const client = getSupabase();
+        if (!client) return 'operator';
+        const { data, error } = await client.from('profiles').select('role').eq('id', userId).maybeSingle();
+        if (error || !data) return 'operator';
+        return data.role || 'operator';
+      } catch (e) {
+        return 'operator';
+      }
+    }
+
+    async function handleLogin() {
+      const email = document.getElementById('loginEmail').value.trim();
+      const password = document.getElementById('loginPassword').value;
+      const errBox = document.getElementById('loginError');
+      const btn = document.getElementById('btnLogin');
+      errBox.classList.add('hidden');
+
+      if (!email || !password) {
+        errBox.innerText = 'Email dan password wajib diisi.';
+        errBox.classList.remove('hidden');
+        return;
+      }
+
+      const client = getSupabase();
+      if (!client) {
+        errBox.innerText = 'Tidak ada koneksi ke server autentikasi. Periksa internet Anda.';
+        errBox.classList.remove('hidden');
+        return;
+      }
+
+      btn.disabled = true;
+      btn.innerText = 'Memproses...';
+
+      const { data, error } = await client.auth.signInWithPassword({ email, password });
 
       btn.disabled = false;
-      btn.innerText = "KIRIM LAPORAN SHIFT";
+      btn.innerText = 'Masuk';
 
       if (error) {
-        statusMsg.innerText = "❌ Gagal kirim: " + error.message;
-        statusMsg.className = "text-center font-semibold text-sm mt-2 text-red-600";
-      } else {
-        statusMsg.innerText = "✅ Laporan Berhasil Terkirim!";
-        statusMsg.className = "text-center font-semibold text-sm mt-2 text-green-600";
-        
-        // Reset form
-        document.getElementById('operator').value = '';
-        document.getElementById('actual_output').value = '';
-        document.getElementById('downtime_menit').value = '';
-        document.getElementById('catatan').value = '';
+        errBox.innerText = '❌ Login gagal: ' + error.message;
+        errBox.classList.remove('hidden');
+        return;
+      }
+
+      await onLoginSuccess(data.user);
+    }
+
+    async function onLoginSuccess(user) {
+      const role = await fetchUserRole(user.id, user.email);
+      currentUser = { id: user.id, email: user.email, role };
+
+      document.getElementById('loginScreen').classList.add('hidden');
+      document.getElementById('appRoot').classList.remove('hidden');
+      document.getElementById('currentUserBadge').innerText = `${escapeHtml(user.email)} (${escapeHtml(role)})`;
+
+      applyRoleRestrictions();
+      initAppAfterLogin();
+    }
+
+    async function handleLogout() {
+      const client = getSupabase();
+      if (client) await client.auth.signOut();
+      currentUser = null;
+      document.getElementById('appRoot').classList.add('hidden');
+      document.getElementById('loginScreen').classList.remove('hidden');
+      document.getElementById('loginEmail').value = '';
+      document.getElementById('loginPassword').value = '';
+    }
+
+    // Cek sesi yang sudah ada (mis. user refresh halaman) supaya tidak perlu login ulang terus-menerus.
+    window.addEventListener('load', async () => {
+      const client = getSupabase();
+      if (!client) return; // Supabase JS gagal load (mis. offline saat pertama buka) — tetap di layar login.
+      const { data } = await client.auth.getSession();
+      if (data && data.session && data.session.user) {
+        await onLoginSuccess(data.session.user);
       }
     });
   </script>
